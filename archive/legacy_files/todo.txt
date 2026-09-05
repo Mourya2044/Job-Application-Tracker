@@ -1,0 +1,4 @@
+To-do:
+
+29-07-2026:
+A service that reads mails/activity at a specific time of the day and provides summary created using AI.

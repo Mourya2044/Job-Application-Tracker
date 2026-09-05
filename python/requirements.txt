@@ -1,0 +1,12 @@
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+openai
+python-dotenv
+beautifulsoup4
+langchain-openai
+fastapi
+uvicorn
+sqlalchemy
+rapidfuzz
+pytest

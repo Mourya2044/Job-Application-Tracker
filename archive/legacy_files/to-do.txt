@@ -1,0 +1,4 @@
+1. 29-07-2026 (done): A service that reads mails/activity of a user at a specific time of the day and provides summary created using AI.
+
+2. 03-08-2026 (done): Event based mail tracking (e.g: event of job status change)
+        - use llm call to classify
