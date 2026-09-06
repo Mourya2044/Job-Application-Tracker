@@ -1,13 +1,19 @@
 import json
+import logging
 import os
 import uuid
+
+logger = logging.getLogger(__name__)
+import base64
+from urllib.parse import quote
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from app.config import TOKEN_FILE
+from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI
 from app.db.database import get_db
 from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
 from app.schemas.consent import MailboxConsentRead, MailboxConsentUpdate
@@ -19,8 +25,17 @@ from app.services.consent_manager import (
     is_sync_authorized,
     perform_google_login,
     revoke_consent,
+    get_google_auth_url,
+    exchange_oauth_code,
 )
-from app.services.mailbox_sync import sync_mailbox_events
+from app.services.background_worker import background_worker
+
+from app.services.mailbox_sync import (
+    setup_gmail_watch,
+    stop_gmail_watch,
+    sync_mailbox_events,
+    sync_mailbox_history_events,
+)
 from app.services.resolver import resolve_application_match
 from app.services.status_extractor import extract_email_status_event
 
@@ -55,7 +70,11 @@ def get_mailbox_status(db: Session = Depends(get_db)):
         "auto_create_applications": consent.auto_create_applications,
         "scopes_granted": consent.scopes_granted,
         "last_synced_at": consent.last_synced_at.isoformat() if consent.last_synced_at else None,
+        "last_history_id": consent.last_history_id,
+        "watch_expiration": consent.watch_expiration.isoformat() if consent.watch_expiration else None,
+        "pubsub_topic": consent.pubsub_topic,
         "has_token_file": has_token,
+        "background_sync": background_worker.get_status(),
         "stats": {
             "total_processed_emails": total_logs,
             "total_matched_updates": matched_logs,
@@ -190,7 +209,7 @@ def get_sync_activity(limit: int = 25, db: Session = Depends(get_db)):
 def update_consent(payload: MailboxConsentUpdate, db: Session = Depends(get_db)):
     """Grant or revoke user consent for mailbox reading, launching OAuth if needed."""
     if payload.consent_given:
-        if os.path.exists(TOKEN_FILE):
+        if is_sync_authorized(db):
             return grant_consent(db)
         else:
             return perform_google_login(db)
@@ -198,10 +217,60 @@ def update_consent(payload: MailboxConsentUpdate, db: Session = Depends(get_db))
         return revoke_consent(db)
 
 
-@router.post("/connect-google", response_model=MailboxConsentRead)
-def connect_google_mailbox(db: Session = Depends(get_db)):
-    """Launch Google OAuth flow in user's browser, login, and obtain Gmail tokens."""
-    return perform_google_login(db)
+def get_effective_redirect_uri(request: Request) -> str:
+    """Determine the OAuth callback redirect URI based on config or request headers."""
+    if GOOGLE_REDIRECT_URI:
+        return GOOGLE_REDIRECT_URI
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    return f"{proto}://{host}/api/mailbox/callback"
+
+
+@router.post("/connect-google")
+def connect_google_mailbox(request: Request, db: Session = Depends(get_db)):
+    """
+    Launch Google OAuth flow.
+    Returns auth_url for Web flow, or falls back to desktop browser server for local development.
+    """
+    redirect_uri = get_effective_redirect_uri(request)
+    try:
+        auth_url = get_google_auth_url(redirect_uri)
+        return {"auth_url": auth_url, "redirect_uri": redirect_uri}
+    except Exception as e:
+        logger.warning("Web OAuth flow could not be created: %s. Attempting local desktop flow.", e)
+        try:
+            return perform_google_login(db)
+        except Exception as local_err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Google authentication could not be initiated: {str(e)}",
+            )
+
+
+@router.get("/callback")
+def google_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Google OAuth redirect handler for web deployments.
+    Exchanges code for tokens, saves to DB, and redirects user to frontend.
+    """
+    if error:
+        return RedirectResponse(url=f"/?oauth=error&msg={quote(error)}")
+    if not code:
+        return RedirectResponse(url="/?oauth=error&msg=missing_code")
+
+    redirect_uri = get_effective_redirect_uri(request)
+    try:
+        exchange_oauth_code(code=code, redirect_uri=redirect_uri, db=db)
+        return RedirectResponse(url="/?oauth=success")
+    except Exception as e:
+        logger.error("OAuth code exchange failed: %s", e)
+        return RedirectResponse(url=f"/?oauth=error&msg={quote(str(e))}")
+
 
 
 @router.post("/sync")
@@ -304,3 +373,120 @@ def simulate_incoming_email(payload: SimulateEmailPayload, db: Session = Depends
         "matched_application": applied_change,
         "extracted_event": event.model_dump(),
     }
+
+
+# =============================================================================
+# Background Sync & Event-Based Tracking Controls
+# =============================================================================
+
+class BackgroundSyncConfigPayload(BaseModel):
+    interval_seconds: int = Field(120, ge=10, le=3600, description="Interval in seconds between background sync loops")
+
+
+class WatchPayload(BaseModel):
+    topic_name: Optional[str] = Field(None, description="Google Cloud Pub/Sub topic string")
+
+
+class PubSubPushPayload(BaseModel):
+    message: dict = Field(..., description="Google Cloud Pub/Sub push message object")
+    subscription: Optional[str] = None
+
+
+@router.get("/background-sync")
+def get_background_sync_status():
+    """Retrieve the real-time operational status and telemetry of the background sync worker."""
+    return background_worker.get_status()
+
+
+@router.post("/background-sync/start")
+async def start_background_sync():
+    """Start or resume the periodic background sync worker."""
+    await background_worker.start()
+    return background_worker.get_status()
+
+
+@router.post("/background-sync/stop")
+async def stop_background_sync():
+    """Pause the background sync worker."""
+    await background_worker.stop()
+    return background_worker.get_status()
+
+
+@router.post("/background-sync/configure")
+def configure_background_sync(payload: BackgroundSyncConfigPayload):
+    """Configure the background sync loop interval in seconds."""
+    background_worker.set_interval(payload.interval_seconds)
+    return background_worker.get_status()
+
+
+@router.post("/background-sync/trigger")
+async def trigger_background_sync_cycle():
+    """Immediately trigger a background sync run without waiting for the timer."""
+    result = await background_worker.trigger_cycle()
+    return {
+        "status": "success",
+        "result": result,
+        "worker": background_worker.get_status(),
+    }
+
+
+@router.post("/watch")
+def setup_push_watch(payload: WatchPayload, db: Session = Depends(get_db)):
+    """
+    Subscribes mailbox to Google Cloud Pub/Sub push notifications via Gmail API users().watch().
+    Enables event-driven updates for external users.
+    """
+    return setup_gmail_watch(db, topic_name=payload.topic_name)
+
+
+@router.post("/stop-watch")
+def stop_push_watch(db: Session = Depends(get_db)):
+    """Unsubscribe mailbox from Gmail push notifications."""
+    return stop_gmail_watch(db)
+
+
+@router.post("/webhook")
+def receive_pubsub_webhook(payload: PubSubPushPayload, db: Session = Depends(get_db)):
+    """
+    Google Cloud Pub/Sub Push Webhook Receiver:
+    Triggered in real-time when any external logged-in user receives an email.
+    Decodes the user's email address and historyId, and performs an incremental history event sync.
+    """
+    msg = payload.message
+    raw_data = msg.get("data")
+    if not raw_data:
+        return {"status": "ignored", "reason": "No data in message"}
+
+    try:
+        decoded_bytes = base64.b64decode(raw_data)
+        notification = json.loads(decoded_bytes.decode("utf-8"))
+    except Exception as e:
+        logger.warning("Could not decode Pub/Sub data payload: %s", e)
+        return {"status": "error", "message": "Invalid base64 payload"}
+
+    email_address = notification.get("emailAddress")
+    history_id = notification.get("historyId")
+
+    logger.info("Received Pub/Sub push event for email: %s, historyId: %s", email_address, history_id)
+
+    # Find the target user in database
+    consent = None
+    if email_address:
+        consent = (
+            db.query(UserMailboxConsent)
+            .filter(UserMailboxConsent.user_email == email_address)
+            .first()
+        )
+
+    if not consent:
+        consent = get_or_create_consent(db)
+
+    # Execute incremental event sync
+    result = sync_mailbox_history_events(db, consent=consent)
+    return {
+        "status": "processed",
+        "email_address": email_address,
+        "history_id": history_id,
+        "sync_result": result,
+    }
+

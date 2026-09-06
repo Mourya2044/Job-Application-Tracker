@@ -12,10 +12,15 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session
 
-from app.config import CREDENTIALS_FILE, TOKEN_FILE, GMAIL_SCOPES
+from app.config import CREDENTIALS_FILE, TOKEN_FILE, GMAIL_SCOPES, GMAIL_PUBSUB_TOPIC
 from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
 from app.services.change_tracker import apply_auto_stage_change
-from app.services.consent_manager import get_or_create_consent, is_sync_authorized
+from app.services.consent_manager import (
+    get_or_create_consent,
+    is_sync_authorized,
+    get_client_config,
+    get_current_credentials,
+)
 from app.services.resolver import resolve_application_match
 from app.services.status_extractor import extract_email_status_event, sanitize_email_body
 
@@ -54,19 +59,12 @@ def get_email_body(payload: dict) -> str:
     return ""
 
 
-def get_gmail_credentials() -> Optional[Credentials]:
-    creds = None
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), GMAIL_SCOPES)
+def get_gmail_credentials(
+    consent: Optional[UserMailboxConsent] = None,
+    db: Optional[Session] = None,
+) -> Optional[Credentials]:
+    return get_current_credentials(db=db, consent=consent)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(TOKEN_FILE, "w") as token:
-                token.write(creds.to_json())
-        else:
-            return None
-    return creds
 
 
 TARGETED_JOB_QUERY = (
@@ -78,11 +76,18 @@ TARGETED_JOB_QUERY = (
 )
 
 
-def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
+def sync_mailbox_events(
+    db: Session,
+    query: Optional[str] = None,
+    consent: Optional[UserMailboxConsent] = None,
+) -> Dict:
     if query is None:
         query = TARGETED_JOB_QUERY
 
-    if not is_sync_authorized(db):
+    if consent is None:
+        consent = get_or_create_consent(db)
+
+    if not is_sync_authorized(db, consent):
         return {
             "status": "unauthorized",
             "message": "Mailbox sync consent has not been granted or credentials are missing.",
@@ -90,7 +95,7 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
             "updates_count": 0,
         }
 
-    creds = get_gmail_credentials()
+    creds = get_gmail_credentials(consent, db=db)
     if not creds:
         return {
             "status": "auth_required",
@@ -110,7 +115,7 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
 
         for msg_meta in messages:
             msg_id = msg_meta["id"]
-            
+
             # Check if email already processed
             existing_log = db.query(EmailLog).filter(EmailLog.message_id == msg_id).first()
             if existing_log:
@@ -129,7 +134,6 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
             processed_count += 1
 
             if not event.is_job_related:
-                # Discard non-job emails from database storage for privacy
                 continue
 
             # Resolve to existing application
@@ -140,8 +144,7 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
             if matched_app:
                 matched_app_id = matched_app.id
                 match_status = "matched_auto" if not matched_app.stage_locked else "suggested"
-                
-                # Apply stage transition or suggestion
+
                 apply_auto_stage_change(
                     db=db,
                     application=matched_app,
@@ -159,7 +162,6 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
                     "is_new": False,
                 })
             elif event.company_name and event.is_job_related:
-                # Discovered an application in email that is not yet tracked -> queue for user confirmation
                 match_status = "untracked_candidate"
                 updates_count += 1
                 updated_applications.append({
@@ -170,7 +172,6 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
                     "is_pending_confirmation": True,
                 })
 
-            # Record email log for audit
             email_log = EmailLog(
                 message_id=msg_id,
                 thread_id=msg.get("threadId"),
@@ -187,9 +188,14 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
             db.add(email_log)
             db.commit()
 
-        # Update last synced time on consent record
-        consent = get_or_create_consent(db)
+        # Update last synced time & historyId on consent record
         consent.last_synced_at = utc_now()
+        try:
+            profile = service.users().getProfile(userId="me").execute()
+            if profile.get("historyId"):
+                consent.last_history_id = str(profile.get("historyId"))
+        except Exception:
+            pass
         db.commit()
 
         return {
@@ -198,6 +204,7 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
             "updates_count": updates_count,
             "updated_applications": updated_applications,
             "last_synced_at": consent.last_synced_at.isoformat(),
+            "history_id": consent.last_history_id,
         }
 
     except HttpError as error:
@@ -208,3 +215,242 @@ def sync_mailbox_events(db: Session, query: Optional[str] = None) -> Dict:
             "processed_count": 0,
             "updates_count": 0,
         }
+
+
+def sync_mailbox_history_events(
+    db: Session,
+    consent: Optional[UserMailboxConsent] = None,
+) -> Dict:
+    """
+    Incremental Event-Based Status Sync:
+    Uses Gmail users().history().list(startHistoryId=...) to detect and process only new emails
+    that arrived since the last history marker.
+    """
+    if consent is None:
+        consent = get_or_create_consent(db)
+
+    if not is_sync_authorized(db, consent):
+        return {
+            "status": "unauthorized",
+            "message": "Mailbox sync consent has not been granted or credentials are missing.",
+            "processed_count": 0,
+            "updates_count": 0,
+        }
+
+    creds = get_gmail_credentials(consent, db=db)
+    if not creds:
+        return {
+            "status": "auth_required",
+            "message": "Google OAuth credentials expired or missing. Please reconnect mailbox.",
+            "processed_count": 0,
+            "updates_count": 0,
+        }
+
+    try:
+        service = build("gmail", "v1", credentials=creds)
+
+        # If no historyId yet, do initial baseline sync
+        if not consent.last_history_id:
+            logger.info("No last_history_id found for %s; performing baseline sync", consent.user_email)
+            result = sync_mailbox_events(db, consent=consent)
+            return result
+
+        # Incremental event sync query
+        try:
+            history_res = (
+                service.users()
+                .history()
+                .list(
+                    userId="me",
+                    startHistoryId=consent.last_history_id,
+                    historyTypes=["messageAdded"],
+                )
+                .execute()
+            )
+        except HttpError as http_err:
+            if http_err.resp.status == 404:
+                # History ID has expired (older than ~30 days) -> fallback to baseline query
+                logger.warning("History ID expired for %s; running fallback sync", consent.user_email)
+                result = sync_mailbox_events(db, consent=consent)
+                return result
+            raise http_err
+
+        records = history_res.get("history", [])
+        new_msg_ids = set()
+        for rec in records:
+            for added in rec.get("messagesAdded", []):
+                msg_info = added.get("message", {})
+                mid = msg_info.get("id")
+                if mid:
+                    new_msg_ids.add(mid)
+
+        processed_count = 0
+        updates_count = 0
+        updated_applications = []
+
+        for msg_id in new_msg_ids:
+            # Check if email already processed
+            existing_log = db.query(EmailLog).filter(EmailLog.message_id == msg_id).first()
+            if existing_log:
+                continue
+
+            msg = service.users().messages().get(userId="me", id=msg_id).execute()
+            payload = msg.get("payload", {})
+            subject = get_header(payload, "Subject")
+            sender = get_header(payload, "From")
+            raw_body = get_email_body(payload)
+            snippet = msg.get("snippet", "")
+
+            # Classify & extract event
+            event = extract_email_status_event(subject=subject, raw_body=raw_body, sender=sender)
+            processed_count += 1
+
+            if not event.is_job_related:
+                continue
+
+            # Resolve to existing application
+            matched_app = resolve_application_match(db, event, sender=sender, subject=subject)
+            match_status = "unmatched"
+            matched_app_id = None
+
+            if matched_app:
+                matched_app_id = matched_app.id
+                match_status = "matched_auto" if not matched_app.stage_locked else "suggested"
+
+                apply_auto_stage_change(
+                    db=db,
+                    application=matched_app,
+                    event_data=event,
+                    email_message_id=msg_id,
+                    email_subject=subject,
+                    email_snippet=snippet,
+                )
+                updates_count += 1
+                updated_applications.append({
+                    "application_id": matched_app.id,
+                    "company_name": matched_app.company_name,
+                    "new_stage": matched_app.current_stage,
+                    "event_category": event.event_category,
+                    "is_new": False,
+                })
+            elif event.company_name and event.is_job_related:
+                match_status = "untracked_candidate"
+                updates_count += 1
+                updated_applications.append({
+                    "application_id": None,
+                    "company_name": event.company_name,
+                    "new_stage": event.target_lifecycle_stage.value if event.target_lifecycle_stage else "applied",
+                    "event_category": event.event_category,
+                    "is_pending_confirmation": True,
+                })
+
+            email_log = EmailLog(
+                message_id=msg_id,
+                thread_id=msg.get("threadId"),
+                sender=sender,
+                subject=subject,
+                snippet=snippet,
+                received_at=utc_now(),
+                detected_company=event.company_name,
+                detected_stage=event.target_lifecycle_stage.value if event.target_lifecycle_stage else None,
+                matched_application_id=matched_app_id,
+                match_status=match_status,
+                raw_classification=json.dumps(event.model_dump()),
+            )
+            db.add(email_log)
+            db.commit()
+
+        # Update consent record with new historyId
+        new_history_id = history_res.get("historyId")
+        if new_history_id:
+            consent.last_history_id = str(new_history_id)
+        consent.last_synced_at = utc_now()
+        db.commit()
+
+        return {
+            "status": "success",
+            "processed_count": processed_count,
+            "updates_count": updates_count,
+            "updated_applications": updated_applications,
+            "last_synced_at": consent.last_synced_at.isoformat(),
+            "history_id": consent.last_history_id,
+        }
+
+    except HttpError as error:
+        logger.error("Gmail API error during history sync: %s", error)
+        return {
+            "status": "error",
+            "message": f"Gmail API error: {str(error)}",
+            "processed_count": 0,
+            "updates_count": 0,
+        }
+
+
+def setup_gmail_watch(
+    db: Session,
+    consent: Optional[UserMailboxConsent] = None,
+    topic_name: Optional[str] = None,
+) -> Dict:
+    """
+    Subscribes mailbox to real-time Google Cloud Pub/Sub push notifications via Gmail API users().watch().
+    """
+    if consent is None:
+        consent = get_or_create_consent(db)
+
+    creds = get_gmail_credentials(consent, db=db)
+    if not creds:
+        return {"status": "auth_required", "message": "Google credentials missing."}
+
+    topic = topic_name or GMAIL_PUBSUB_TOPIC
+    if not topic:
+        return {
+            "status": "error",
+            "message": "No Google Cloud Pub/Sub topic configured. Set GMAIL_PUBSUB_TOPIC in .env.",
+        }
+
+    try:
+        service = build("gmail", "v1", credentials=creds)
+        res = service.users().watch(
+            userId="me",
+            body={"topicName": topic, "labelIds": ["INBOX"]},
+        ).execute()
+
+        consent.last_history_id = str(res.get("historyId"))
+        exp_ms = res.get("expiration")
+        if exp_ms:
+            consent.watch_expiration = datetime.fromtimestamp(int(exp_ms) / 1000.0, timezone.utc)
+        consent.pubsub_topic = topic
+        db.commit()
+
+        return {
+            "status": "success",
+            "history_id": consent.last_history_id,
+            "expiration": consent.watch_expiration.isoformat() if consent.watch_expiration else None,
+            "topic": topic,
+        }
+    except Exception as e:
+        logger.error("Failed to setup Gmail watch: %s", e)
+        return {"status": "error", "message": str(e)}
+
+
+def stop_gmail_watch(
+    db: Session,
+    consent: Optional[UserMailboxConsent] = None,
+) -> Dict:
+    """Stops Gmail API push notifications for the user."""
+    if consent is None:
+        consent = get_or_create_consent(db)
+
+    creds = get_gmail_credentials(consent, db=db)
+    if not creds:
+        return {"status": "auth_required", "message": "Google credentials missing."}
+
+    try:
+        service = build("gmail", "v1", credentials=creds)
+        service.users().stop(userId="me").execute()
+        consent.watch_expiration = None
+        db.commit()
+        return {"status": "success", "message": "Gmail watch stopped."}
+    except Exception as e:
+        logger.error("Failed to stop Gmail watch: %s", e)
+        return {"status": "error", "message": str(e)}

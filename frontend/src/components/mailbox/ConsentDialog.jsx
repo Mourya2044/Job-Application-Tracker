@@ -5,7 +5,13 @@ import {
   Trash2, 
   RefreshCw, 
   Check, 
-  Mail
+  Mail,
+  Zap,
+  Clock,
+  Radio,
+  Sliders,
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react"
 import {
   Dialog,
@@ -17,6 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { toast } from "sonner"
 
 function GoogleIcon({ className = "w-4 h-4" }) {
   return (
@@ -49,11 +56,17 @@ export function ConsentDialog({
   onDisconnect,
   onSyncMailbox,
   isSyncing,
+  onReloadStatus,
 }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [statusMessage, setStatusMessage] = useState("")
+  const [bgSyncInterval, setBgSyncInterval] = useState(
+    consentStatus?.background_sync?.interval_seconds || 120
+  )
+  const [isBgToggling, setIsBgToggling] = useState(false)
 
   const isConnected = consentStatus?.consent_given && consentStatus?.is_sync_enabled
+  const bgWorker = consentStatus?.background_sync
 
   const handleConnectGoogle = async () => {
     setIsProcessing(true)
@@ -77,30 +90,83 @@ export function ConsentDialog({
     }
   }
 
+  const handleToggleBackgroundSync = async () => {
+    setIsBgToggling(true)
+    try {
+      const endpoint = bgWorker?.is_running
+        ? "/api/mailbox/background-sync/stop"
+        : "/api/mailbox/background-sync/start"
+      const res = await fetch(endpoint, { method: "POST" })
+      if (!res.ok) throw new Error("Could not toggle background sync")
+      toast.success(
+        bgWorker?.is_running ? "Background auto-sync paused" : "Background auto-sync activated!"
+      )
+      if (onReloadStatus) onReloadStatus()
+    } catch (err) {
+      toast.error(err.message || "Failed to toggle background sync")
+    } finally {
+      setIsBgToggling(false)
+    }
+  }
+
+  const handleChangeInterval = async (newSecs) => {
+    setBgSyncInterval(newSecs)
+    try {
+      const res = await fetch("/api/mailbox/background-sync/configure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interval_seconds: newSecs }),
+      })
+      if (!res.ok) throw new Error("Failed to configure interval")
+      toast.success(`Sync frequency set to ${newSecs} seconds`)
+      if (onReloadStatus) onReloadStatus()
+    } catch (err) {
+      toast.error(err.message || "Failed to set frequency")
+    }
+  }
+
+  const handleTriggerBackgroundCycle = async () => {
+    setIsProcessing(true)
+    try {
+      const res = await fetch("/api/mailbox/background-sync/trigger", { method: "POST" })
+      const data = await res.json()
+      const updates = data.result?.cycle_updates || 0
+      toast.success(`Background cycle complete: ${updates} updates detected`)
+      if (onReloadStatus) onReloadStatus()
+    } catch (err) {
+      toast.error("Failed to run cycle")
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md bg-card border-border/80 p-6 space-y-4">
+      <DialogContent className="max-w-lg bg-card border-border/80 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
         <DialogHeader className="space-y-1">
-          <DialogTitle className="text-base font-semibold text-foreground">Gmail Connection</DialogTitle>
+          <DialogTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+            <Mail className="w-4 h-4 text-emerald-400" />
+            <span>Mailbox Settings & Event Sync</span>
+          </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Automatically track job application status updates and interview invites.
+            Manage your Google connection, background event synchronization, and OAuth scopes.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Status Card */}
+        {/* Account Connection Status Card */}
         <div className="rounded-lg border border-border/60 bg-muted/20 p-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`h-2.5 w-2.5 rounded-full ${isConnected ? "bg-emerald-400" : "bg-zinc-500"}`} />
+            <div className={`h-2.5 w-2.5 rounded-full ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"}`} />
             <div>
               <span className="text-xs font-semibold text-foreground block">
-                {isConnected ? (consentStatus.user_email || "Google Connected") : "Not Connected"}
+                {isConnected ? (consentStatus.user_email || "Google Account Connected") : "Not Connected"}
               </span>
               <p className="text-[11px] text-muted-foreground">
                 {isConnected && consentStatus.last_synced_at
-                  ? `Last sync: ${new Date(consentStatus.last_synced_at).toLocaleTimeString()}`
+                  ? `Last manual sync: ${new Date(consentStatus.last_synced_at).toLocaleTimeString()}`
                   : isConnected
-                  ? "Read-only sync active"
-                  : "Sign in to enable mailbox status capture"}
+                  ? "OAuth authorized for status updates"
+                  : "Sign in with Google to enable automated tracking"}
               </p>
             </div>
           </div>
@@ -117,6 +183,100 @@ export function ConsentDialog({
               {isSyncing ? "Syncing..." : "Sync Now"}
             </Button>
           )}
+        </div>
+
+        {/* Background Event-Based Worker Section */}
+        <div className="rounded-lg border border-border/60 bg-card/40 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className={`w-4 h-4 ${bgWorker?.is_running ? "text-amber-400" : "text-muted-foreground"}`} />
+              <div>
+                <span className="text-xs font-semibold text-foreground block">Background Auto-Sync</span>
+                <span className="text-[11px] text-muted-foreground">
+                  Periodic history event synchronization in background
+                </span>
+              </div>
+            </div>
+
+            <Button
+              size="sm"
+              variant={bgWorker?.is_running ? "outline" : "default"}
+              onClick={handleToggleBackgroundSync}
+              disabled={isBgToggling}
+              className="h-7 text-xs px-3"
+            >
+              {bgWorker?.is_running ? "Pause" : "Enable"}
+            </Button>
+          </div>
+
+          {/* Telemetry row */}
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/40 text-[11px]">
+            <div className="p-2 rounded bg-muted/20 border border-border/40">
+              <span className="text-muted-foreground block text-[10px]">Worker Status</span>
+              <span className={`font-semibold capitalize ${bgWorker?.is_running ? "text-emerald-400" : "text-muted-foreground"}`}>
+                {bgWorker?.is_running ? bgWorker?.last_status || "Active" : "Paused"}
+              </span>
+            </div>
+            <div className="p-2 rounded bg-muted/20 border border-border/40">
+              <span className="text-muted-foreground block text-[10px]">Total Cycles</span>
+              <span className="font-semibold text-foreground">
+                {bgWorker?.total_cycles || 0}
+              </span>
+            </div>
+            <div className="p-2 rounded bg-muted/20 border border-border/40">
+              <span className="text-muted-foreground block text-[10px]">Auto Updates</span>
+              <span className="font-semibold text-sky-400">
+                {bgWorker?.total_updates_detected || 0}
+              </span>
+            </div>
+          </div>
+
+          {/* Interval Selector */}
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              Check frequency:
+            </span>
+
+            <div className="flex items-center gap-1">
+              {[
+                { label: "1m", sec: 60 },
+                { label: "2m", sec: 120 },
+                { label: "5m", sec: 300 },
+                { label: "15m", sec: 900 },
+              ].map(opt => (
+                <button
+                  key={opt.sec}
+                  onClick={() => handleChangeInterval(opt.sec)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
+                    (bgWorker?.interval_seconds || bgSyncInterval) === opt.sec
+                      ? "bg-primary/20 border-primary text-primary"
+                      : "bg-muted/30 border-border/50 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Real-Time Push / Pub-Sub Watch Status */}
+        <div className="p-3 rounded-lg border border-border/50 bg-muted/10 space-y-1.5 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-foreground text-[11px] flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5 text-violet-400" />
+              Real-Time Pub/Sub Push Watch
+            </span>
+            <Badge variant="outline" className="text-[10px] text-muted-foreground border-border/60">
+              {consentStatus?.watch_expiration ? "Active" : "Standby (Polling)"}
+            </Badge>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            {consentStatus?.watch_expiration
+              ? `Subscribed to Google Cloud Pub/Sub push notifications until ${new Date(consentStatus.watch_expiration).toLocaleDateString()}.`
+              : "Google Cloud Pub/Sub receives instant push notifications when external users receive recruiter emails."}
+          </p>
         </div>
 
         {isProcessing && statusMessage && (

@@ -8,6 +8,7 @@ import { SyncActivityDrawer } from "@/components/mailbox/SyncActivityDrawer"
 import { AddApplicationModal } from "@/components/board/AddApplicationModal"
 import { PendingDiscoveryBanner } from "@/components/mailbox/PendingDiscoveryBanner"
 import { DiscoveryPromptModal } from "@/components/mailbox/DiscoveryPromptModal"
+import { JobScraperView } from "@/components/jobs/JobScraperView"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -28,7 +29,9 @@ import {
   MoreVertical,
   X,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Globe,
+  Zap
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -55,9 +58,48 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("board")
 
   useEffect(() => {
+    // Check for OAuth redirect return params (?oauth=success or ?oauth=error)
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get("oauth") === "success") {
+      toast.success("Google Account successfully connected!")
+      loadConsentStatus()
+      const cleanUrl = window.location.pathname + (window.location.hash || "")
+      window.history.replaceState({}, document.title, cleanUrl)
+    } else if (urlParams.get("oauth") === "error") {
+      const msg = urlParams.get("msg") || "Authentication failed"
+      toast.error(`Google Login failed: ${msg}`)
+      const cleanUrl = window.location.pathname + (window.location.hash || "")
+      window.history.replaceState({}, document.title, cleanUrl)
+    }
+
     loadBoard()
     loadConsentStatus()
     loadPendingDiscoveries()
+
+    // Periodic telemetry poll every 15 seconds to capture background sync events
+    const interval = setInterval(async () => {
+
+      try {
+        const res = await fetch("/api/mailbox/status")
+        if (res.ok) {
+          const data = await res.json()
+          setConsentStatus(prev => {
+            const prevUpdates = prev?.background_sync?.total_updates_detected || 0
+            const newUpdates = data?.background_sync?.total_updates_detected || 0
+            if (newUpdates > prevUpdates) {
+              loadBoard()
+              loadPendingDiscoveries()
+              toast.info(`Background Mailbox Sync: ${newUpdates - prevUpdates} status update(s) detected!`)
+            }
+            return data
+          })
+        }
+      } catch (e) {
+        // ignore background poll errors
+      }
+    }, 15000)
+
+    return () => clearInterval(interval)
   }, [])
 
   const loadBoard = async () => {
@@ -267,16 +309,22 @@ export default function App() {
     try {
       const res = await fetch("/api/mailbox/connect-google", { method: "POST" })
       if (!res.ok) throw new Error("Google login failed")
-      const status = await res.json()
-      setConsentStatus(status)
+      const data = await res.json()
+      if (data.auth_url) {
+        // Web / serverless OAuth redirect
+        window.location.href = data.auth_url
+        return
+      }
+      setConsentStatus(data)
       await loadConsentStatus()
       toast.success(
-        status.user_email ? `Connected as ${status.user_email}` : "Google Account Connected"
+        data.user_email ? `Connected as ${data.user_email}` : "Google Account Connected"
       )
     } catch (err) {
       toast.error("Google authentication cancelled or failed.")
     }
   }
+
 
   const handleDisconnect = async () => {
     try {
@@ -420,6 +468,26 @@ export default function App() {
 
         {/* Right Actions */}
         <div className="flex items-center gap-2">
+          {/* Background Auto-Sync Live Indicator */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsConsentOpen(true)}
+            className="h-7 text-xs gap-1.5 border-border/60 text-muted-foreground hover:text-foreground"
+            title="Configure Background Auto-Sync"
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                consentStatus?.background_sync?.is_running ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"
+              }`}
+            />
+            <span className="hidden md:inline text-[11px]">
+              {consentStatus?.background_sync?.is_running
+                ? `Auto-Sync (${consentStatus?.background_sync?.interval_seconds}s)`
+                : "Auto-Sync Paused"}
+            </span>
+          </Button>
+
           {/* Mailbox Status Pill */}
           <Button
             variant="outline"
@@ -495,7 +563,7 @@ export default function App() {
       <div className="border-b border-border/40 bg-card/20 px-6 py-2 flex flex-wrap items-center justify-between text-xs gap-3">
         {/* Left: View Switcher & Quick Metrics */}
         <div className="flex items-center gap-4">
-          {/* Board / Table Tabs */}
+          {/* Board / Table / Jobs Tabs */}
           <div className="flex items-center bg-muted/40 p-0.5 rounded-lg border border-border/40">
             <button
               onClick={() => setActiveTab("board")}
@@ -518,6 +586,18 @@ export default function App() {
             >
               <ListFilter className="w-3 h-3" />
               <span>List</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("jobs")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                activeTab === "jobs"
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Globe className="w-3 h-3 text-sky-400" />
+              <span>Discover Jobs</span>
+              <span className="text-[9px] bg-primary/20 text-primary px-1 rounded font-bold">New</span>
             </button>
           </div>
 
@@ -574,7 +654,7 @@ export default function App() {
         />
 
         {/* Empty State when 0 applications */}
-        {boardData.total_applications === 0 && pendingDiscoveries.length === 0 ? (
+        {boardData.total_applications === 0 && pendingDiscoveries.length === 0 && activeTab !== "jobs" ? (
           <div className="rounded-xl border border-dashed border-border/60 bg-card/20 p-12 text-center flex flex-col items-center justify-center space-y-3 max-w-md mx-auto mt-12">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">
               <Building2 className="h-5 w-5" />
@@ -596,6 +676,17 @@ export default function App() {
           </div>
         ) : (
           <div>
+            {/* Job Discovery & Scraper View */}
+            {activeTab === "jobs" && (
+              <JobScraperView
+                onImportJob={async () => {
+                  await loadBoard()
+                  await loadPendingDiscoveries()
+                }}
+                trackedUrls={boardData.columns.flatMap(c => c.applications).map(a => a.job_url).filter(Boolean)}
+              />
+            )}
+
             {/* Kanban Board View */}
             {activeTab === "board" && (
               <KanbanBoard
@@ -690,6 +781,7 @@ export default function App() {
         onDisconnect={handleDisconnect}
         onSyncMailbox={handleSyncMailbox}
         isSyncing={isSyncing}
+        onReloadStatus={loadConsentStatus}
       />
 
       {/* Discovery Prompt Modal */}
