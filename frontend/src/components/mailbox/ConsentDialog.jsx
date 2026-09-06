@@ -90,7 +90,28 @@ export function ConsentDialog({
     }
   }
 
+  const [isWatchRegistering, setIsWatchRegistering] = useState(false)
+
+  const handleSubscribeWatch = async () => {
+    setIsWatchRegistering(true)
+    try {
+      const res = await fetch("/api/mailbox/watch", { method: "POST" })
+      const data = await res.json()
+      if (data.status === "success") {
+        toast.success("Real-time Pub/Sub push watch active!")
+        if (onReloadStatus) onReloadStatus()
+      } else {
+        toast.error(data.message || "Failed to setup push watch")
+      }
+    } catch (e) {
+      toast.error("Failed to connect push watch")
+    } finally {
+      setIsWatchRegistering(false)
+    }
+  }
+
   const handleToggleBackgroundSync = async () => {
+
     setIsBgToggling(true)
     try {
       const endpoint = bgWorker?.is_running
@@ -262,22 +283,37 @@ export function ConsentDialog({
         </div>
 
         {/* Real-Time Push / Pub-Sub Watch Status */}
-        <div className="p-3 rounded-lg border border-border/50 bg-muted/10 space-y-1.5 text-xs">
+        <div className="p-3 rounded-lg border border-border/50 bg-muted/10 space-y-2 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-medium text-foreground text-[11px] flex items-center gap-1.5">
-              <Radio className="w-3.5 h-3.5 text-violet-400" />
-              Real-Time Pub/Sub Push Watch
+              <Radio className={`w-3.5 h-3.5 ${consentStatus?.watch_active || consentStatus?.watch_expiration ? "text-emerald-400 animate-pulse" : "text-violet-400"}`} />
+              Event-Driven Pub/Sub Push Watch
             </span>
-            <Badge variant="outline" className="text-[10px] text-muted-foreground border-border/60">
-              {consentStatus?.watch_expiration ? "Active" : "Standby (Polling)"}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className={`text-[10px] ${consentStatus?.watch_active || consentStatus?.watch_expiration ? "text-emerald-400 border-emerald-500/40 bg-emerald-500/10" : "text-muted-foreground border-border/60"}`}>
+                {consentStatus?.watch_active || consentStatus?.watch_expiration ? "Active (Real-time)" : "Standby"}
+              </Badge>
+              {isConnected && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[10px] px-2 border-border/60 gap-1"
+                  onClick={handleSubscribeWatch}
+                  disabled={isWatchRegistering}
+                >
+                  <RefreshCw className={`w-2.5 h-2.5 ${isWatchRegistering ? "animate-spin" : ""}`} />
+                  {isWatchRegistering ? "Connecting..." : (consentStatus?.watch_expiration ? "Renew" : "Subscribe")}
+                </Button>
+              )}
+            </div>
           </div>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {consentStatus?.watch_expiration
-              ? `Subscribed to Google Cloud Pub/Sub push notifications until ${new Date(consentStatus.watch_expiration).toLocaleDateString()}.`
-              : "Google Cloud Pub/Sub receives instant push notifications when external users receive recruiter emails."}
+              ? `Subscribed to Google Cloud Pub/Sub real-time webhook. Expires ${new Date(consentStatus.watch_expiration).toLocaleDateString()}. Status updates trigger immediately when emails arrive.`
+              : "Google Cloud Pub/Sub sends instantaneous webhook notifications directly to your serverless backend when employers send emails."}
           </p>
         </div>
+
 
         {isProcessing && statusMessage && (
           <div className="p-2 rounded-md border border-border/60 bg-muted/30 text-muted-foreground text-xs flex items-center gap-2">

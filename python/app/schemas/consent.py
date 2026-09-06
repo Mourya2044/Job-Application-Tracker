@@ -16,6 +16,10 @@ class MailboxConsentRead(BaseModel):
     auto_create_applications: bool = True
     last_synced_at: Optional[datetime] = None
     last_history_id: Optional[str] = None
+    watch_expiration: Optional[datetime] = None
+    pubsub_topic: Optional[str] = None
+    watch_active: Optional[bool] = None
+
 
 
 class MailboxConsentUpdate(BaseModel):

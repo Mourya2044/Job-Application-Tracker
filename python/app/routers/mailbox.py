@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI
+from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI, GMAIL_PUBSUB_TOPIC
 from app.db.database import get_db
 from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
 from app.schemas.consent import MailboxConsentRead, MailboxConsentUpdate
@@ -52,7 +52,7 @@ class SimulateEmailPayload(BaseModel):
 def get_mailbox_status(db: Session = Depends(get_db)):
     """Check mailbox connection status, OAuth permissions, and live sync statistics."""
     consent = get_or_create_consent(db)
-    has_token = os.path.exists(TOKEN_FILE)
+    has_token = bool(consent.refresh_token or os.path.exists(TOKEN_FILE))
     consent.consent_given = has_token
     consent.is_sync_enabled = has_token
     db.commit()
@@ -60,6 +60,8 @@ def get_mailbox_status(db: Session = Depends(get_db)):
     total_logs = db.query(EmailLog).count()
     matched_logs = db.query(EmailLog).filter(EmailLog.match_status.in_(["matched_auto", "suggested"])).count()
     pending_discoveries_count = db.query(EmailLog).filter(EmailLog.match_status == "untracked_candidate").count()
+
+    is_watch_active = bool(consent.watch_expiration and consent.watch_expiration > utc_now())
 
     return {
         "id": consent.id,
@@ -72,7 +74,8 @@ def get_mailbox_status(db: Session = Depends(get_db)):
         "last_synced_at": consent.last_synced_at.isoformat() if consent.last_synced_at else None,
         "last_history_id": consent.last_history_id,
         "watch_expiration": consent.watch_expiration.isoformat() if consent.watch_expiration else None,
-        "pubsub_topic": consent.pubsub_topic,
+        "watch_active": is_watch_active,
+        "pubsub_topic": consent.pubsub_topic or GMAIL_PUBSUB_TOPIC,
         "has_token_file": has_token,
         "background_sync": background_worker.get_status(),
         "stats": {
@@ -81,6 +84,7 @@ def get_mailbox_status(db: Session = Depends(get_db)):
             "pending_discoveries_count": pending_discoveries_count,
         },
     }
+
 
 
 @router.get("/pending-discoveries")
@@ -256,7 +260,7 @@ def google_oauth_callback(
 ):
     """
     Google OAuth redirect handler for web deployments.
-    Exchanges code for tokens, saves to DB, and redirects user to frontend.
+    Exchanges code for tokens, saves to DB, auto-registers event-based Pub/Sub watch, and redirects user to frontend.
     """
     if error:
         return RedirectResponse(url=f"/?oauth=error&msg={quote(error)}")
@@ -265,12 +269,21 @@ def google_oauth_callback(
 
     redirect_uri = get_effective_redirect_uri(request)
     try:
-        exchange_oauth_code(code=code, redirect_uri=redirect_uri, db=db)
+        consent = exchange_oauth_code(code=code, redirect_uri=redirect_uri, db=db)
+
+        # Automatically register real-time Pub/Sub push watch for this user account if topic is configured
+        topic = GMAIL_PUBSUB_TOPIC or consent.pubsub_topic
+        if topic:
+            try:
+                watch_res = setup_gmail_watch(db, topic_name=topic, consent=consent)
+                logger.info("Automatic Gmail push watch registered for %s: %s", consent.user_email, watch_res)
+            except Exception as watch_err:
+                logger.warning("Could not auto-register Gmail watch for %s: %s", consent.user_email, watch_err)
+
         return RedirectResponse(url="/?oauth=success")
     except Exception as e:
         logger.error("OAuth code exchange failed: %s", e)
         return RedirectResponse(url=f"/?oauth=error&msg={quote(str(e))}")
-
 
 
 @router.post("/sync")
@@ -282,8 +295,13 @@ def trigger_sync(db: Session = Depends(get_db)):
 
 @router.post("/disconnect", response_model=MailboxConsentRead)
 def disconnect_mailbox(db: Session = Depends(get_db)):
-    """Disconnect mailbox, revoke token online, and delete local credentials."""
+    """Disconnect mailbox, stop Gmail watch, revoke token online, and delete credentials."""
+    try:
+        stop_gmail_watch(db)
+    except Exception as e:
+        logger.warning("Failed to stop Gmail push watch on disconnect: %s", e)
     return revoke_consent(db)
+
 
 
 @router.post("/simulate-email")
@@ -431,12 +449,19 @@ async def trigger_background_sync_cycle():
 
 
 @router.post("/watch")
-def setup_push_watch(payload: WatchPayload, db: Session = Depends(get_db)):
+def setup_push_watch(payload: Optional[WatchPayload] = None, db: Session = Depends(get_db)):
     """
     Subscribes mailbox to Google Cloud Pub/Sub push notifications via Gmail API users().watch().
-    Enables event-driven updates for external users.
+    Enables event-driven updates for each user account.
     """
-    return setup_gmail_watch(db, topic_name=payload.topic_name)
+    consent = get_or_create_consent(db)
+    topic = (payload.topic_name if payload and payload.topic_name else None) or consent.pubsub_topic or GMAIL_PUBSUB_TOPIC
+    if not topic:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No Google Cloud Pub/Sub topic configured. Set GMAIL_PUBSUB_TOPIC in environment variables.",
+        )
+    return setup_gmail_watch(db, topic_name=topic, consent=consent)
 
 
 @router.post("/stop-watch")
@@ -483,10 +508,24 @@ def receive_pubsub_webhook(payload: PubSubPushPayload, db: Session = Depends(get
 
     # Execute incremental event sync
     result = sync_mailbox_history_events(db, consent=consent)
+
+    # Auto-renew watch if within 24 hours of expiration
+    if consent.watch_expiration:
+        remaining_seconds = (consent.watch_expiration - utc_now()).total_seconds()
+        if remaining_seconds < 86400:
+            try:
+                topic = consent.pubsub_topic or GMAIL_PUBSUB_TOPIC
+                if topic:
+                    setup_gmail_watch(db, topic_name=topic, consent=consent)
+                    logger.info("Auto-renewed Gmail watch for %s", consent.user_email)
+            except Exception as renew_err:
+                logger.warning("Could not auto-renew watch for %s: %s", consent.user_email, renew_err)
+
     return {
         "status": "processed",
         "email_address": email_address,
         "history_id": history_id,
         "sync_result": result,
     }
+
 
