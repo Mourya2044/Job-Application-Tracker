@@ -85,22 +85,56 @@ def get_google_flow(redirect_uri: str) -> Flow:
     )
 
 
+import urllib.parse
+from datetime import timedelta
+
 def get_google_auth_url(redirect_uri: str) -> str:
     """Generate the Google OAuth authorization URL for user consent redirect."""
-    flow = get_google_flow(redirect_uri)
-    auth_url, _ = flow.authorization_url(
-        access_type="offline",
-        prompt="consent",
-        include_granted_scopes="true",
-    )
-    return auth_url
+    client_id, _ = get_client_config()
+    if not client_id:
+        raise ValueError("Google OAuth credentials not configured.")
+        
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(GMAIL_SCOPES),
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true",
+    }
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
 
 
 def exchange_oauth_code(code: str, redirect_uri: str, db: Session) -> UserMailboxConsent:
     """Exchange OAuth authorization code for tokens and store them in the database."""
-    flow = get_google_flow(redirect_uri)
-    flow.fetch_token(code=code)
-    creds = flow.credentials
+    client_id, client_secret = get_client_config()
+    
+    response = httpx.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        },
+        timeout=10.0,
+    )
+    
+    if response.status_code != 200:
+        raise ValueError(f"Failed to exchange token: {response.text}")
+        
+    creds_data = response.json()
+    
+    creds = Credentials(
+        token=creds_data["access_token"],
+        refresh_token=creds_data.get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=GMAIL_SCOPES,
+    )
 
     user_email = fetch_gmail_user_email(creds)
 
@@ -109,11 +143,11 @@ def exchange_oauth_code(code: str, redirect_uri: str, db: Session) -> UserMailbo
     consent.is_sync_enabled = True
     consent.consent_timestamp = utc_now()
     consent.scopes_granted = ",".join(GMAIL_SCOPES)
-    if creds.refresh_token:
-        consent.refresh_token = creds.refresh_token
-    consent.access_token = creds.token
-    if creds.expiry:
-        consent.token_expiry = creds.expiry
+    if creds_data.get("refresh_token"):
+        consent.refresh_token = creds_data["refresh_token"]
+    consent.access_token = creds_data["access_token"]
+    if creds_data.get("expires_in"):
+        consent.token_expiry = utc_now() + timedelta(seconds=creds_data["expires_in"])
     if user_email:
         consent.user_email = user_email
 
