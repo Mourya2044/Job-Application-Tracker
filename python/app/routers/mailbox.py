@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI, GMAIL_PUBSUB_TOPIC
+from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI, GMAIL_PUBSUB_TOPIC, FRONTEND_URL
 from app.db.database import get_db
 from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
 from app.schemas.consent import MailboxConsentRead, MailboxConsentUpdate
@@ -262,19 +262,17 @@ def google_oauth_callback(
     Exchanges code for tokens, saves to DB, auto-registers event-based Pub/Sub watch, and redirects user to frontend.
     """
     if error:
-        return RedirectResponse(url=f"/?oauth=error&msg={quote(error)}")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=error&msg={quote(error)}")
     if not code:
-        return RedirectResponse(url="/?oauth=error&msg=missing_code")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=error&msg=missing_code")
 
     redirect_uri = get_effective_redirect_uri(request)
     try:
         consent = exchange_oauth_code(code=code, redirect_uri=redirect_uri, db=db)
-
-
-        return RedirectResponse(url="/?oauth=success")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=success")
     except Exception as e:
         logger.error("OAuth code exchange failed: %s", e)
-        return RedirectResponse(url=f"/?oauth=error&msg={quote(str(e))}")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=error&msg={quote(str(e))}")
 
 
 @router.post("/sync")

@@ -39,4 +39,6 @@ BACKGROUND_SYNC_INTERVAL_SECONDS = int(os.getenv("BACKGROUND_SYNC_INTERVAL_SECON
 default_sync_enabled = "false" if IS_VERCEL else "true"
 BACKGROUND_SYNC_ENABLED = os.getenv("BACKGROUND_SYNC_ENABLED", default_sync_enabled).lower() == "true"
 GMAIL_PUBSUB_TOPIC = os.getenv("GMAIL_PUBSUB_TOPIC", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://job-application-tracker-one-ruddy.vercel.app").rstrip("/")
+
 
