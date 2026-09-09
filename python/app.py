@@ -122,7 +122,8 @@ async def on_startup():
 async def on_shutdown():
     await background_worker.stop()
 
-# 6. Launch via demo.launch(ssr_mode=False)
+# 6. Launch via demo.launch(_app=fastapi_app, ssr_mode=False)
+# Passing _app=fastapi_app ensures Gradio configures our existing FastAPI instance rather than creating a new blank one.
 # Disabling ssr_mode prevents Gradio 6 from launching the Node SvelteKit front proxy which intercepts GET requests.
 if __name__ == "__main__":
-    demo.launch(ssr_mode=False)
+    demo.launch(_app=fastapi_app, ssr_mode=False)
