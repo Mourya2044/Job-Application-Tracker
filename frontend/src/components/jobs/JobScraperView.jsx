@@ -17,88 +17,19 @@ import {
 import { toast } from "sonner"
 import { fetchApi } from "@/config/api"
 
-const INITIAL_DEMO_JOBS = [
-  {
-    id: "demo-google-1",
-    title: "Senior Frontend Engineer",
-    company_name: "Google",
-    logoLetter: "G",
-    logoBg: "rgba(96, 165, 250, 0.12)",
-    logoColor: "#60a5fa",
-    location: "Mountain View, CA",
-    job_type: "Full-time",
-    salary_range: "$180k – $240k",
-    tags: ["React", "TypeScript", "Next.js"],
-    posted_date: "Posted 2 days ago",
-    url: "https://careers.google.com",
-    saved: false,
-  },
-  {
-    id: "demo-anthropic-1",
-    title: "Machine Learning Engineer",
-    company_name: "Anthropic",
-    logoLetter: "A",
-    logoBg: "rgba(167, 139, 250, 0.12)",
-    logoColor: "#a78bfa",
-    location: "San Francisco, CA",
-    job_type: "Full-time",
-    salary_range: "$200k – $320k",
-    tags: ["Python", "PyTorch", "LLMs"],
-    posted_date: "Posted 1 day ago",
-    url: "https://www.anthropic.com/careers",
-    saved: false,
-  },
-  {
-    id: "demo-linear-1",
-    title: "Full Stack Engineer",
-    company_name: "Linear",
-    logoLetter: "L",
-    logoBg: "rgba(232, 228, 220, 0.1)",
-    logoColor: "#e8e4dc",
-    location: "Remote",
-    job_type: "Full-time",
-    salary_range: "$150k – $210k",
-    tags: ["React", "Node.js", "PostgreSQL"],
-    posted_date: "Posted 3 days ago",
-    url: "https://linear.app/careers",
-    saved: false,
-  },
-  {
-    id: "demo-stripe-1",
-    title: "Staff Infrastructure Engineer",
-    company_name: "Stripe",
-    logoLetter: "S",
-    logoBg: "rgba(74, 222, 128, 0.12)",
-    logoColor: "#4ade80",
-    location: "Remote (US)",
-    job_type: "Full-time",
-    salary_range: "$210k – $280k",
-    tags: ["Go", "Distributed Systems", "Kubernetes"],
-    posted_date: "Posted 4 days ago",
-    url: "https://stripe.com/jobs",
-    saved: false,
-  },
-  {
-    id: "demo-figma-1",
-    title: "Product Designer & Engineer",
-    company_name: "Figma",
-    logoLetter: "F",
-    logoBg: "rgba(212, 168, 53, 0.12)",
-    logoColor: "#d4a853",
-    location: "San Francisco, CA",
-    job_type: "Full-time",
-    salary_range: "$175k – $225k",
-    tags: ["Design Systems", "WebGL", "TypeScript"],
-    posted_date: "Posted 5 days ago",
-    url: "https://figma.com/careers",
-    saved: false,
-  },
+const POPULAR_COMPANIES = [
+  { name: "Stripe", slug: "stripe", provider: "greenhouse", color: "#60a5fa" },
+  { name: "Vercel", slug: "vercel", provider: "greenhouse", color: "#e8e4dc" },
+  { name: "Figma", slug: "figma", provider: "lever", color: "#d4a853" },
+  { name: "Airbnb", slug: "airbnb", provider: "greenhouse", color: "#fb7185" },
+  { name: "Cloudflare", slug: "cloudflare", provider: "greenhouse", color: "#fbbf24" },
+  { name: "Linear", slug: "linear", provider: "ashby", color: "#a78bfa" },
 ]
 
 export function JobScraperView({ onImportJob }) {
   const [searchInput, setSearchInput] = useState("")
   const [activeFilter, setActiveFilter] = useState("all")
-  const [jobs, setJobs] = useState(INITIAL_DEMO_JOBS)
+  const [jobs, setJobs] = useState([])
   const [savedJobIds, setSavedJobIds] = useState(new Set())
   const [trackedJobIds, setTrackedJobIds] = useState(new Set())
   const [isSearching, setIsSearching] = useState(false)
@@ -137,7 +68,6 @@ export function JobScraperView({ onImportJob }) {
   const handleSearch = async (e) => {
     if (e) e.preventDefault()
     if (!searchInput.trim()) {
-      setJobs(INITIAL_DEMO_JOBS)
       return
     }
 
@@ -154,7 +84,7 @@ export function JobScraperView({ onImportJob }) {
           logoColor: "#d4a853",
           location: d.location || "Remote",
           job_type: d.remote_type || "Full-time",
-          salary_range: d.salary_range || "$120k – $180k",
+          salary_range: d.salary_range || null,
           tags: d.department ? [d.department, "Tech"] : ["Engineering"],
           posted_date: "Recently",
           url: d.url,
@@ -162,10 +92,44 @@ export function JobScraperView({ onImportJob }) {
         setJobs(mapped)
         toast.success(`Found ${mapped.length} jobs for "${searchInput}"`)
       } else {
-        toast.info(`No external live jobs found, filtering current listings.`)
+        setJobs([])
+        toast.info(`No live jobs found for "${searchInput}". Try another keyword or popular company.`)
       }
     } catch {
-      // fallback to filtering local list
+      toast.error("Failed to search live jobs")
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleExploreCompany = async (comp) => {
+    setAtsProvider(comp.provider)
+    setAtsSlug(comp.slug)
+    setIsSearching(true)
+    try {
+      const data = await fetchApi(`/api/jobs/scrape/ats?provider=${comp.provider}&company=${encodeURIComponent(comp.slug)}`)
+      if (data && data.length > 0) {
+        const mapped = data.map((d, i) => ({
+          id: d.id || `${comp.slug}-${i}`,
+          title: d.title,
+          company_name: d.company_name || comp.name,
+          logoLetter: comp.name.charAt(0).toUpperCase(),
+          logoBg: "rgba(212, 168, 53, 0.12)",
+          logoColor: comp.color || "#d4a853",
+          location: d.location || "Remote",
+          job_type: "Full-time",
+          salary_range: d.salary_range || null,
+          tags: d.department ? [d.department] : ["Software"],
+          posted_date: "Active Posting",
+          url: d.url,
+        }))
+        setJobs(mapped)
+        toast.success(`Loaded ${mapped.length} live positions from ${comp.name}`)
+      } else {
+        toast.info(`No public postings found for ${comp.name}`)
+      }
+    } catch (err) {
+      toast.error(err.message || `Failed to fetch postings from ${comp.name}`)
     } finally {
       setIsSearching(false)
     }
@@ -374,6 +338,22 @@ export function JobScraperView({ onImportJob }) {
         </button>
       </form>
 
+      {/* Quick ATS Source Pills */}
+      <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+        <span className="text-[#556178] text-[11px]">Explore Live ATS:</span>
+        {POPULAR_COMPANIES.map(comp => (
+          <button
+            key={comp.slug}
+            type="button"
+            onClick={() => handleExploreCompany(comp)}
+            disabled={isSearching}
+            className="px-2.5 py-1 rounded-md bg-[#131926] border border-[#253048] hover:border-[#d4a853] text-[#8a94a8] hover:text-[#d4a853] transition-colors disabled:opacity-50"
+          >
+            {comp.name}
+          </button>
+        ))}
+      </div>
+
       {/* Filter Pills matching code.html */}
       <div className="flex flex-wrap gap-2">
         {filters.map(f => {
@@ -397,9 +377,42 @@ export function JobScraperView({ onImportJob }) {
       {/* Job Results List matching code.html */}
       <div className="space-y-3.5">
         {filteredJobs.length === 0 ? (
-          <div className="text-center py-16 bg-[#131926] border border-[#253048] rounded-xl text-[#556178] font-mono text-xs">
-            No job postings match your criteria.
-          </div>
+          isSearching ? (
+            <div className="text-center py-16 bg-[#131926] border border-[#253048] rounded-xl text-[#d4a853] font-mono text-xs flex items-center justify-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Fetching live postings...</span>
+            </div>
+          ) : jobs.length === 0 && !searchInput.trim() ? (
+            <div className="text-center py-16 bg-[#131926] border border-[#253048] rounded-xl p-8 flex flex-col items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-[rgba(212,168,53,0.08)] border border-[rgba(212,168,53,0.2)] flex items-center justify-center text-[#d4a853] mb-4">
+                <Search className="w-5 h-5" />
+              </div>
+              <h3 className="font-serif text-lg font-semibold text-[#e8e4dc] mb-1.5">
+                Explore Live Tech Job Postings
+              </h3>
+              <p className="text-[#8a94a8] text-xs max-w-md leading-relaxed mb-6 font-serif">
+                Search by keyword or select an ATS source above to extract live job postings in real time.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {POPULAR_COMPANIES.map(comp => (
+                  <button
+                    key={comp.slug}
+                    type="button"
+                    onClick={() => handleExploreCompany(comp)}
+                    disabled={isSearching}
+                    className="px-3.5 py-1.5 rounded-lg bg-[#1a2235] border border-[#253048] hover:border-[#d4a853] hover:text-[#d4a853] text-xs font-mono text-[#e8e4dc] transition-all flex items-center gap-1.5"
+                  >
+                    <span>{comp.name}</span>
+                    <ExternalLink className="w-3 h-3 opacity-60" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-16 bg-[#131926] border border-[#253048] rounded-xl text-[#556178] font-mono text-xs">
+              No job postings match your criteria.
+            </div>
+          )
         ) : (
           filteredJobs.map(job => {
             const isSaved = savedJobIds.has(job.id)

@@ -122,60 +122,6 @@ def get_pending_discoveries(db: Session = Depends(get_db)):
     """Get all untracked applications discovered in emails awaiting user confirmation."""
     logs = db.query(EmailLog).filter(EmailLog.match_status == "untracked_candidate").order_by(desc(EmailLog.processed_at)).all()
     
-    # Auto-seed realistic demo approvals if completely empty to match code.html
-    if not logs:
-        initial_samples = [
-            {
-                "message_id": "seed-google-email",
-                "sender": "careers@google.com",
-                "subject": "Thank you for applying to Google",
-                "snippet": "Thank you for your interest in Google. We have received your application for the Software Engineer position and our team will review it shortly...",
-                "company": "Google",
-                "role": "Software Engineer, L4",
-                "stage": "applied",
-            },
-            {
-                "message_id": "seed-stripe-email",
-                "sender": "hiring@stripe.com",
-                "subject": "Application Received: Backend Engineer at Stripe",
-                "snippet": "Hi Jordan, thank you for applying to Stripe! We're excited to review your application for the Backend Engineer role on our Infrastructure team...",
-                "company": "Stripe",
-                "role": "Backend Engineer, Infrastructure",
-                "stage": "applied",
-            },
-            {
-                "message_id": "seed-notion-email",
-                "sender": "talent@notion.so",
-                "subject": "Thank you for applying to Notion!",
-                "snippet": "Your application to Notion for the Frontend Engineer position has been received. We'll be in touch with next steps within 5-7 business days...",
-                "company": "Notion",
-                "role": "Frontend Engineer",
-                "stage": "applied",
-            },
-        ]
-        for s in initial_samples:
-            demo_log = EmailLog(
-                message_id=s["message_id"],
-                thread_id=f"thread-{s['message_id']}",
-                sender=s["sender"],
-                subject=s["subject"],
-                snippet=s["snippet"],
-                received_at=utc_now(),
-                detected_company=s["company"],
-                detected_stage=s["stage"],
-                match_status="untracked_candidate",
-                raw_classification=json.dumps({
-                    "company_name": s["company"],
-                    "role_title": s["role"],
-                    "target_lifecycle_stage": s["stage"],
-                    "summary_sentence": s["snippet"],
-                    "confidence": 0.95,
-                }),
-            )
-            db.add(demo_log)
-        db.commit()
-        logs = db.query(EmailLog).filter(EmailLog.match_status == "untracked_candidate").order_by(desc(EmailLog.processed_at)).all()
-
     results = []
     for log in logs:
         raw_info = json.loads(log.raw_classification) if log.raw_classification else {}

@@ -38,17 +38,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-function GoogleIcon({ className = "w-5 h-5" }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-    </svg>
-  )
-}
-
 export default function App() {
   const [boardData, setBoardData] = useState({ columns: [], total_applications: 0 })
   const [pendingDiscoveries, setPendingDiscoveries] = useState([])
@@ -63,10 +52,6 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [currentView, setCurrentView] = useState("dashboard") // dashboard, approvals, tracking, search
   const [trackingMode, setTrackingMode] = useState("kanban") // kanban, list
-  
-  // Login Screen State matching code.html
-  const [isLoggedIn, setIsLoggedIn] = useState(true)
-  const [isSigningIn, setIsSigningIn] = useState(false)
 
   useEffect(() => {
     // Check for OAuth redirect return params (?oauth=success or ?oauth=error)
@@ -325,62 +310,15 @@ export default function App() {
   const isConnected = !!(consentStatus?.consent_given && consentStatus?.is_sync_enabled)
   const userDisplayName = consentStatus?.user_email
     ? consentStatus.user_email.split("@")[0].replace(".", " ")
-    : "Jordan Doe"
-  const userEmailDisplay = consentStatus?.user_email || "jordan@gmail.com"
-  const userInitials = userDisplayName
-    .split(" ")
-    .map(n => n.charAt(0).toUpperCase())
-    .slice(0, 2)
-    .join("") || "JD"
+    : (isConnected ? "Connected User" : "My Account")
+  const userEmailDisplay = consentStatus?.user_email || (isConnected ? "Mailbox Sync Active" : "No mailbox connected")
+  const userInitials = consentStatus?.user_email
+    ? consentStatus.user_email.slice(0, 2).toUpperCase()
+    : "ME"
 
   return (
     <div className="min-h-screen bg-[#0c1019] text-[#e8e4dc] font-serif flex">
       <Toaster position="bottom-right" richColors theme="dark" />
-
-      {/* ============================================
-          LOGIN SCREEN OVERLAY (matching code.html)
-          ============================================ */}
-      {!isLoggedIn && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#080b12] p-4 transition-all duration-500">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_25%_30%,rgba(212,168,53,0.06)_0%,transparent_55%),radial-gradient(ellipse_at_75%_70%,rgba(96,165,250,0.04)_0%,transparent_50%)] pointer-events-none" />
-          <div className="relative bg-[#131926] border border-[#253048] rounded-3xl p-10 sm:p-14 max-w-md w-full text-center shadow-2xl animate-fadeUp">
-            <div className="font-serif text-5xl font-bold text-[#d4a853] mb-2 tracking-tight">
-              Hired<span className="opacity-40">.</span>
-            </div>
-            <p className="text-[#8a94a8] text-sm leading-relaxed mb-8">
-              Track every application. Never miss an update.<br />Your job search, intelligently organized.
-            </p>
-
-            <div className="flex flex-col gap-3 mb-9 text-left font-serif text-xs text-[#8a94a8]">
-              <div className="flex items-center gap-2.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#d4a853] shrink-0" />
-                <span>Automatic email detection for new applications</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#d4a853] shrink-0" />
-                <span>Real-time status tracking & timeline</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#d4a853] shrink-0" />
-                <span>Built-in job search with smart filters</span>
-              </div>
-            </div>
-
-            <button
-              onClick={handleLoginClick}
-              disabled={isSigningIn}
-              className="w-full py-3.5 px-6 rounded-xl bg-white hover:bg-zinc-100 text-[#1a1a1a] font-mono text-xs font-semibold flex items-center justify-center gap-3 transition-all shadow-lg hover:-translate-y-0.5 disabled:opacity-60"
-            >
-              <GoogleIcon className="w-5 h-5" />
-              <span>{isSigningIn ? "Signing in..." : "Sign in with Google"}</span>
-            </button>
-
-            <p className="mt-8 text-[11px] text-[#556178]">
-              By signing in, you agree to let Hired. scan your inbox for job-related emails.
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* ============================================
           SIDEBAR NAVIGATION (matching code.html)

@@ -33,8 +33,6 @@ router = APIRouter(prefix="/api/applications", tags=["applications"])
 @router.get("", response_model=KanbanBoardResponse)
 def list_applications_kanban(db: Session = Depends(get_db)):
     """Retrieve all tracked applications organized into Kanban lifecycle stage columns."""
-    if db.query(Application).count() == 0:
-        seed_demo_applications(db)
     return get_kanban_board(db)
 
 

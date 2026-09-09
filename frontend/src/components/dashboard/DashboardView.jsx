@@ -96,7 +96,7 @@ export function DashboardView({
 
   const userDisplayName = consentStatus?.user_email 
     ? consentStatus.user_email.split("@")[0].replace(".", " ")
-    : "Jordan"
+    : null
 
   return (
     <div className="space-y-8 animate-fadeUp">
@@ -107,7 +107,7 @@ export function DashboardView({
             Dashboard
           </h1>
           <p className="text-[#8a94a8] text-sm mt-1.5 capitalize">
-            Welcome back, {userDisplayName}. Here's your job search at a glance.
+            {userDisplayName ? `Welcome back, ${userDisplayName}. ` : "Welcome back. "}Here's your job search at a glance.
           </p>
         </div>
 
