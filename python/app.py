@@ -72,4 +72,4 @@ async def on_shutdown():
     await background_worker.stop()
 
 # In ZeroGPU, demo.launch() starts demo.app on port 7860
-demo.launch(server_port=7860)
+demo.launch(server_port=7860, share=True)
