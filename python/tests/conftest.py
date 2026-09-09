@@ -16,7 +16,7 @@ TEST_DATABASE_URL = "sqlite:///:memory:"
 
 
 @pytest.fixture(scope="function")
-def db_session():
+def db_session(monkeypatch):
     engine = create_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
@@ -24,6 +24,8 @@ def db_session():
     )
     Base.metadata.create_all(bind=engine)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    monkeypatch.setattr("app.routers.mailbox.SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr("app.services.background_worker.SessionLocal", TestingSessionLocal)
     session = TestingSessionLocal()
     try:
         yield session

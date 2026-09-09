@@ -8,14 +8,14 @@ logger = logging.getLogger(__name__)
 import base64
 from urllib.parse import quote
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI, GMAIL_PUBSUB_TOPIC, FRONTEND_URL
-from app.db.database import get_db
+from app.db.database import get_db, SessionLocal
 from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
 from app.schemas.consent import MailboxConsentRead, MailboxConsentUpdate
 from app.schemas.application import ApplicationRead
@@ -28,6 +28,8 @@ from app.services.consent_manager import (
     revoke_consent,
     get_google_auth_url,
     exchange_oauth_code,
+    setup_gmail_watch,
+    stop_gmail_watch,
 )
 from app.services.background_worker import background_worker
 
@@ -465,3 +467,166 @@ async def trigger_background_sync_cycle():
         "result": result,
         "worker": background_worker.get_status(),
     }
+
+
+# =============================================================================
+# Google Cloud Pub/Sub Webhook & Push Notification Handlers
+# =============================================================================
+
+@router.post("/webhook")
+@router.post("/pubsub")
+async def gmail_pubsub_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Push endpoint for Google Cloud Pub/Sub Gmail notifications.
+    Immediately returns HTTP 200 OK so Pub/Sub marks messages as ACKed.
+    Decodes the Gmail notification payload and kicks off incremental history sync.
+    """
+    try:
+        raw_body = await request.body()
+        if not raw_body:
+            return Response(
+                status_code=status.HTTP_200_OK,
+                content=json.dumps({"status": "ok", "message": "empty_body"}),
+                media_type="application/json",
+            )
+
+        try:
+            body = json.loads(raw_body.decode("utf-8"))
+        except Exception:
+            # If body is not json, still return 200 to prevent infinite pubsub retries
+            return Response(
+                status_code=status.HTTP_200_OK,
+                content=json.dumps({"status": "ok", "message": "non_json"}),
+                media_type="application/json",
+            )
+
+        message = body.get("message", {})
+        data_b64 = message.get("data")
+        subscription = body.get("subscription", "")
+        message_id = message.get("messageId", "")
+
+        logger.info(
+            "Received Pub/Sub push notification from subscription: %s, messageId: %s",
+            subscription,
+            message_id,
+        )
+
+        if not data_b64:
+            # Verification ping or heartbeat from Google Cloud Pub/Sub
+            return Response(
+                status_code=status.HTTP_200_OK,
+                content=json.dumps({"status": "ok", "message": "verified"}),
+                media_type="application/json",
+            )
+
+        # Decode base64 payload from Gmail: {"emailAddress": "...", "historyId": "..."}
+        try:
+            # Add padding if required
+            padding = 4 - (len(data_b64) % 4)
+            if padding and padding < 4:
+                data_b64 += "=" * padding
+            decoded_bytes = base64.urlsafe_b64decode(data_b64)
+            payload_data = json.loads(decoded_bytes.decode("utf-8"))
+        except Exception as dec_err:
+            logger.warning("Could not decode Pub/Sub message data: %s", dec_err)
+            payload_data = {}
+
+        target_email = payload_data.get("emailAddress")
+        history_id = payload_data.get("historyId")
+        logger.info("Gmail notification decoded: email=%s, historyId=%s", target_email, history_id)
+
+        # Dispatch async background sync cycle so HTTP 200 is returned immediately
+        def _run_pubsub_sync(user_email: Optional[str]):
+            try:
+                with SessionLocal() as session:
+                    query = session.query(UserMailboxConsent).filter(
+                        UserMailboxConsent.consent_given == True,  # noqa: E712
+                        UserMailboxConsent.is_sync_enabled == True,  # noqa: E712
+                    )
+                    if user_email:
+                        target_consent = query.filter(UserMailboxConsent.user_email == user_email).first()
+                        consents_to_sync = [target_consent] if target_consent else query.all()
+                    else:
+                        consents_to_sync = query.all()
+
+                    for c in consents_to_sync:
+                        try:
+                            logger.info("Triggering incremental history sync for %s via Pub/Sub event", c.user_email)
+                            sync_mailbox_history_events(session, consent=c)
+                        except Exception as sync_err:
+                            logger.error("Error during Pub/Sub triggered sync for %s: %s", c.user_email, sync_err)
+            except Exception as bg_err:
+                logger.error("Error in background Pub/Sub sync runner: %s", bg_err)
+
+        background_tasks.add_task(_run_pubsub_sync, target_email)
+
+        return Response(
+            status_code=status.HTTP_200_OK,
+            content=json.dumps({"status": "ok", "message": "acknowledged", "historyId": history_id}),
+            media_type="application/json",
+        )
+
+    except Exception as e:
+        logger.error("Unhandled error in Pub/Sub webhook: %s", e, exc_info=True)
+        # MUST return 200 OK so Pub/Sub does not enter an infinite retry loop with un-acked messages
+        return Response(
+            status_code=status.HTTP_200_OK,
+            content=json.dumps({"status": "ok", "error": "logged"}),
+            media_type="application/json",
+        )
+
+
+@router.get("/webhook")
+@router.get("/pubsub")
+def verify_pubsub_endpoint():
+    """Health check & verification endpoint for Google Cloud Pub/Sub."""
+    return {
+        "status": "online",
+        "service": "Gmail Pub/Sub Webhook",
+        "endpoints": ["/api/mailbox/webhook", "/api/mailbox/pubsub"],
+        "topic": GMAIL_PUBSUB_TOPIC,
+    }
+
+
+@router.post("/watch/setup")
+def register_watch_endpoint(db: Session = Depends(get_db)):
+    """Manually register or renew Gmail users().watch with Cloud Pub/Sub topic."""
+    consent = get_or_create_consent(db)
+    if not is_sync_authorized(db, consent):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mailbox sync is not authorized. Please connect your Gmail account first.",
+        )
+    res = setup_gmail_watch(db, consent)
+    if not res:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Failed to establish Gmail watch. Please ensure your Google Cloud Pub/Sub topic "
+                f"'{consent.pubsub_topic or GMAIL_PUBSUB_TOPIC}' has granted the 'Pub/Sub Publisher' "
+                "role to 'gmail-api-push@system.gserviceaccount.com'."
+            ),
+        )
+    return {
+        "status": "success",
+        "message": "Gmail watch registered successfully.",
+        "watch_expiration": consent.watch_expiration.isoformat() if consent.watch_expiration else None,
+        "history_id": consent.last_history_id,
+        "topic": consent.pubsub_topic or GMAIL_PUBSUB_TOPIC,
+    }
+
+
+@router.post("/watch/stop")
+def stop_watch_endpoint(db: Session = Depends(get_db)):
+    """Stop Gmail push notifications and clear watch expiration."""
+    consent = get_or_create_consent(db)
+    stop_gmail_watch(db, consent)
+    return {
+        "status": "success",
+        "message": "Gmail watch stopped.",
+    }
+

@@ -153,6 +153,12 @@ def exchange_oauth_code(code: str, redirect_uri: str, db: Session) -> UserMailbo
 
     db.commit()
     db.refresh(consent)
+
+    try:
+        setup_gmail_watch(db, consent)
+    except Exception as watch_err:
+        logger.warning("Auto watch registration failed during OAuth exchange: %s", watch_err)
+
     return consent
 
 
@@ -292,6 +298,10 @@ def perform_google_login(db: Session) -> UserMailboxConsent:
     db.commit()
     db.refresh(consent)
 
+    try:
+        setup_gmail_watch(db, consent)
+    except Exception as watch_err:
+        logger.warning("Auto watch registration failed during local login: %s", watch_err)
 
     return consent
 
@@ -313,6 +323,11 @@ def grant_consent(db: Session, user_email: Optional[str] = None) -> UserMailboxC
 def revoke_consent(db: Session) -> UserMailboxConsent:
     """Revoke Google OAuth token and disconnect mailbox."""
     consent = get_or_create_consent(db)
+    try:
+        stop_gmail_watch(db, consent)
+    except Exception as watch_err:
+        logger.warning("Stopping Gmail watch failed during revoke: %s", watch_err)
+
     token_to_revoke = consent.access_token or consent.refresh_token
 
     if not token_to_revoke and os.path.exists(TOKEN_FILE):
@@ -343,6 +358,7 @@ def revoke_consent(db: Session) -> UserMailboxConsent:
     consent.refresh_token = None
     consent.access_token = None
     consent.token_expiry = None
+    consent.watch_expiration = None
     db.commit()
     db.refresh(consent)
     return consent
@@ -353,4 +369,64 @@ def is_sync_authorized(db: Session, consent: Optional[UserMailboxConsent] = None
         consent = get_or_create_consent(db)
     has_creds = bool(consent.refresh_token or os.path.exists(TOKEN_FILE))
     return bool(consent.consent_given and consent.is_sync_enabled and has_creds)
+
+
+def setup_gmail_watch(db: Session, consent: UserMailboxConsent) -> Optional[Dict]:
+    """
+    Registers Gmail users().watch with the Google Cloud Pub/Sub topic.
+    Updates consent.watch_expiration and consent.last_history_id in the database.
+    """
+    creds = get_current_credentials(db=db, consent=consent)
+    if not creds:
+        logger.warning("No valid credentials to setup Gmail watch.")
+        return None
+
+    topic = consent.pubsub_topic or GMAIL_PUBSUB_TOPIC
+    if not topic:
+        logger.warning("No GMAIL_PUBSUB_TOPIC configured; skipping watch setup.")
+        return None
+
+    try:
+        service = build("gmail", "v1", credentials=creds)
+        res = service.users().watch(
+            userId="me",
+            body={
+                "topicName": topic,
+                "labelIds": ["INBOX"],
+            },
+        ).execute()
+
+        exp_ms = int(res.get("expiration", 0))
+        if exp_ms:
+            consent.watch_expiration = datetime.fromtimestamp(exp_ms / 1000.0, timezone.utc)
+        if res.get("historyId"):
+            consent.last_history_id = str(res["historyId"])
+        consent.pubsub_topic = topic
+        db.commit()
+        db.refresh(consent)
+        logger.info(
+            "Gmail watch established successfully for %s until %s (historyId=%s)",
+            consent.user_email,
+            consent.watch_expiration,
+            consent.last_history_id,
+        )
+        return res
+    except Exception as e:
+        logger.error("Failed to setup Gmail watch for %s: %s", consent.user_email, e)
+        return None
+
+
+def stop_gmail_watch(db: Session, consent: UserMailboxConsent) -> bool:
+    """Stops Gmail push notifications for the user."""
+    creds = get_current_credentials(db=db, consent=consent)
+    if creds:
+        try:
+            service = build("gmail", "v1", credentials=creds)
+            service.users().stop(userId="me").execute()
+            logger.info("Gmail watch stopped for %s", consent.user_email)
+        except Exception as e:
+            logger.warning("Failed to stop Gmail watch: %s", e)
+    consent.watch_expiration = None
+    db.commit()
+    return True
 

@@ -7,6 +7,7 @@ from app.config import BACKGROUND_SYNC_ENABLED, BACKGROUND_SYNC_INTERVAL_SECONDS
 from app.db.database import SessionLocal
 from app.db.models import UserMailboxConsent, utc_now
 from app.services.mailbox_sync import sync_mailbox_history_events
+from app.services.consent_manager import setup_gmail_watch
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,17 @@ class GmailBackgroundSyncWorker:
                 )
 
                 for consent in consents:
+                    # Maintain active Pub/Sub Gmail watch (auto-renew if missing or expiring within 24h)
+                    try:
+                        now = utc_now()
+                        watch_exp = consent.watch_expiration
+                        if watch_exp is not None and watch_exp.tzinfo is None:
+                            watch_exp = watch_exp.replace(tzinfo=timezone.utc)
+                        if not watch_exp or (watch_exp - now).total_seconds() < 86400:
+                            setup_gmail_watch(db, consent)
+                    except Exception as w_err:
+                        logger.warning("Auto watch renewal failed for %s: %s", consent.user_email, w_err)
+
                     try:
                         res = sync_mailbox_history_events(db, consent=consent)
                         updates = res.get("updates_count", 0)
