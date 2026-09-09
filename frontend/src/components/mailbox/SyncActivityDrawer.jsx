@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { fetchApi } from "@/config/api"
 
 export function SyncActivityDrawer({
   isOpen,
@@ -28,9 +29,8 @@ export function SyncActivityDrawer({
   const loadActivities = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/activity?limit=25")
-      const data = await res.json()
-      setActivities(data)
+      const data = await fetchApi("/api/mailbox/activity?limit=25")
+      setActivities(data || [])
     } catch (err) {
       console.error("Failed to load sync activities:", err)
     } finally {

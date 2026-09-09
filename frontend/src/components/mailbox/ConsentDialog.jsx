@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { fetchApi } from "@/config/api"
 
 function GoogleIcon({ className = "w-4 h-4" }) {
   return (
@@ -93,14 +94,12 @@ export function ConsentDialog({
 
 
   const handleToggleBackgroundSync = async () => {
-
     setIsBgToggling(true)
     try {
       const endpoint = bgWorker?.is_running
         ? "/api/mailbox/background-sync/stop"
         : "/api/mailbox/background-sync/start"
-      const res = await fetch((import.meta.env.VITE_API_URL || "") + endpoint, { method: "POST" })
-      if (!res.ok) throw new Error("Could not toggle background sync")
+      await fetchApi(endpoint, { method: "POST" })
       toast.success(
         bgWorker?.is_running ? "Background auto-sync paused" : "Background auto-sync activated!"
       )
@@ -115,12 +114,11 @@ export function ConsentDialog({
   const handleChangeInterval = async (newSecs) => {
     setBgSyncInterval(newSecs)
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/background-sync/configure", {
+      await fetchApi("/api/mailbox/background-sync/configure", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ interval_seconds: newSecs }),
       })
-      if (!res.ok) throw new Error("Failed to configure interval")
       toast.success(`Sync frequency set to ${newSecs} seconds`)
       if (onReloadStatus) onReloadStatus()
     } catch (err) {
@@ -131,13 +129,12 @@ export function ConsentDialog({
   const handleTriggerBackgroundCycle = async () => {
     setIsProcessing(true)
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/background-sync/trigger", { method: "POST" })
-      const data = await res.json()
-      const updates = data.result?.cycle_updates || 0
+      const data = await fetchApi("/api/mailbox/background-sync/trigger", { method: "POST" })
+      const updates = data?.result?.cycle_updates || 0
       toast.success(`Background cycle complete: ${updates} updates detected`)
       if (onReloadStatus) onReloadStatus()
     } catch (err) {
-      toast.error("Failed to run cycle")
+      toast.error(err.message || "Failed to run cycle")
     } finally {
       setIsProcessing(false)
     }

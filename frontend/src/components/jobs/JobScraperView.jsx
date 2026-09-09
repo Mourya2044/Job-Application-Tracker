@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { fetchApi } from "@/config/api"
 
 export function JobScraperView({ onImportJob, trackedUrls = [] }) {
   const [activeTab, setActiveTab] = useState("ats") // ats, url, feed
@@ -51,9 +52,8 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
 
   const loadCuratedCompanies = async () => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/jobs/popular-companies")
-      const data = await res.json()
-      setCuratedCompanies(data)
+      const data = await fetchApi("/api/jobs/popular-companies")
+      setCuratedCompanies(data || [])
     } catch (err) {
       console.error("Failed to load company presets:", err)
     }
@@ -64,14 +64,9 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
     setIsLoading(true)
     setSingleJob(null)
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/jobs/scrape/ats?provider=${provider}&company=${encodeURIComponent(slug)}`)
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || "Failed to scrape ATS jobs")
-      }
-      const data = await res.json()
-      setJobs(data)
-      toast.success(`Found ${data.length} jobs on ${slug.toUpperCase()} (${provider})`)
+      const data = await fetchApi(`/api/jobs/scrape/ats?provider=${provider}&company=${encodeURIComponent(slug)}`)
+      setJobs(data || [])
+      toast.success(`Found ${(data || []).length} jobs on ${slug.toUpperCase()} (${provider})`)
     } catch (err) {
       toast.error(err.message || "Scraping failed")
       setJobs([])
@@ -86,16 +81,11 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
     setJobs([])
     setSingleJob(null)
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/jobs/scrape/url", {
+      const data = await fetchApi("/api/jobs/scrape/url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: urlInput.trim() }),
       })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || "Could not extract job from URL")
-      }
-      const data = await res.json()
       setSingleJob(data)
       toast.success(`Extracted: ${data.title} at ${data.company_name}`)
     } catch (err) {
@@ -110,13 +100,11 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
     setIsLoading(true)
     setSingleJob(null)
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/jobs/search?query=${encodeURIComponent(feedQuery.trim())}&limit=20`)
-      if (!res.ok) throw new Error("Feed query failed")
-      const data = await res.json()
-      setJobs(data)
-      toast.success(`Found ${data.length} live postings for "${feedQuery}"`)
+      const data = await fetchApi(`/api/jobs/search?query=${encodeURIComponent(feedQuery.trim())}&limit=20`)
+      setJobs(data || [])
+      toast.success(`Found ${(data || []).length} live postings for "${feedQuery}"`)
     } catch (err) {
-      toast.error("Failed to fetch live job feed")
+      toast.error(err.message || "Failed to fetch live job feed")
       setJobs([])
     } finally {
       setIsLoading(false)
@@ -125,16 +113,11 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
 
   const handleTrackJob = async (job, stage = "applied") => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/jobs/import", {
+      const app = await fetchApi("/api/jobs/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job, target_stage: stage }),
       })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.detail || "Failed to import job")
-      }
-      const app = await res.json()
       setImportedJobIds(prev => new Set(prev).add(job.id))
       toast.success(`Added ${app.company_name} to Kanban board!`, {
         description: `${app.role_title} • Stage: ${app.current_stage.toUpperCase()}`,

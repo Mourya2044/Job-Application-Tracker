@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react"
 import { Toaster, toast } from "sonner"
+import { fetchApi } from "@/config/api"
 import { KanbanBoard } from "@/components/board/KanbanBoard"
 import { TimelineSheet } from "@/components/drawer/TimelineSheet"
 import { ConsentDialog } from "@/components/mailbox/ConsentDialog"
@@ -78,11 +79,9 @@ export default function App() {
 
     // Periodic telemetry poll every 15 seconds to capture background sync events
     const interval = setInterval(async () => {
-
       try {
-        const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/status")
-        if (res.ok) {
-          const data = await res.json()
+        const data = await fetchApi("/api/mailbox/status")
+        if (data) {
           setConsentStatus(prev => {
             const prevUpdates = prev?.background_sync?.total_updates_detected || 0
             const newUpdates = data?.background_sync?.total_updates_detected || 0
@@ -104,8 +103,7 @@ export default function App() {
 
   const loadBoard = async () => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/applications")
-      const data = await res.json()
+      const data = await fetchApi("/api/applications")
       setBoardData(data)
     } catch (err) {
       console.error("Failed to load application board:", err)
@@ -115,8 +113,7 @@ export default function App() {
 
   const loadConsentStatus = async () => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/status")
-      const data = await res.json()
+      const data = await fetchApi("/api/mailbox/status")
       setConsentStatus(data)
     } catch (err) {
       console.error("Failed to load consent status:", err)
@@ -125,9 +122,8 @@ export default function App() {
 
   const loadPendingDiscoveries = async () => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/pending-discoveries")
-      const data = await res.json()
-      setPendingDiscoveries(data)
+      const data = await fetchApi("/api/mailbox/pending-discoveries")
+      setPendingDiscoveries(data || [])
     } catch (err) {
       console.error("Failed to load pending discoveries:", err)
     }
@@ -135,8 +131,7 @@ export default function App() {
 
   const handleOpenDetails = async (app) => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${app.id}`)
-      const fullApp = await res.json()
+      const fullApp = await fetchApi(`/api/applications/${app.id}`)
       setSelectedApp(fullApp)
       setIsDetailsOpen(true)
     } catch (err) {
@@ -147,53 +142,50 @@ export default function App() {
 
   const handleAddApplication = async (newAppPayload) => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/applications", {
+      await fetchApi("/api/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newAppPayload),
       })
-      if (!res.ok) throw new Error("Failed to add application")
       await loadBoard()
       toast.success(`Application added: ${newAppPayload.company_name}`)
     } catch (err) {
-      toast.error("Failed to add application")
+      toast.error(err.message || "Failed to add application")
     }
   }
 
   const handleAcceptDiscovery = async (logId) => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/mailbox/accept-discovery/${logId}`, { method: "POST" })
-      if (!res.ok) throw new Error("Failed to accept discovery")
-      const newApp = await res.json()
+      const newApp = await fetchApi(`/api/mailbox/accept-discovery/${logId}`, { method: "POST" })
       await loadBoard()
       await loadPendingDiscoveries()
       await loadConsentStatus()
       toast.success(`Tracking ${newApp.company_name}`)
     } catch (err) {
-      toast.error("Could not add discovered application")
+      toast.error(err.message || "Could not add discovered application")
     }
   }
 
   const handleDismissDiscovery = async (logId) => {
     try {
-      await fetch((import.meta.env.VITE_API_URL || '') + `/api/mailbox/dismiss-discovery/${logId}`, { method: "POST" })
+      await fetchApi(`/api/mailbox/dismiss-discovery/${logId}`, { method: "POST" })
       await loadPendingDiscoveries()
       await loadConsentStatus()
       toast.info("Discovery dismissed")
     } catch (err) {
-      toast.error("Failed to dismiss")
+      toast.error(err.message || "Failed to dismiss")
     }
   }
 
   const handleClearAllData = async () => {
     if (!window.confirm("Are you sure you want to clear all tracked applications and history?")) return
     try {
-      await fetch((import.meta.env.VITE_API_URL || '') + "/api/applications/clear", { method: "POST" })
+      await fetchApi("/api/applications/clear", { method: "POST" })
       await loadBoard()
       await loadPendingDiscoveries()
       toast.info("All applications cleared")
     } catch (err) {
-      toast.error("Failed to clear data")
+      toast.error(err.message || "Failed to clear data")
     }
   }
 
@@ -208,7 +200,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}/stage`, {
+      const updatedApp = await fetchApi(`/api/applications/${appId}/stage`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -218,9 +210,6 @@ export default function App() {
           interview_link: interviewLink || undefined,
         }),
       })
-
-      if (!res.ok) throw new Error("Failed to update stage")
-      const updatedApp = await res.json()
 
       await loadBoard()
 
@@ -240,14 +229,13 @@ export default function App() {
       )
     } catch (err) {
       console.error(err)
-      toast.error("Failed to change status")
+      toast.error(err.message || "Failed to change status")
     }
   }
 
   const handleToggleLock = async (appId) => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}/lock`, { method: "POST" })
-      const updatedApp = await res.json()
+      const updatedApp = await fetchApi(`/api/applications/${appId}/lock`, { method: "POST" })
       await loadBoard()
       if (selectedApp && selectedApp.id === appId) {
         setSelectedApp(updatedApp)
@@ -261,55 +249,50 @@ export default function App() {
         }
       )
     } catch (err) {
-      toast.error("Failed to toggle stage lock")
+      toast.error(err.message || "Failed to toggle stage lock")
     }
   }
 
   const handleRevertStage = async (appId, eventId) => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}/revert/${eventId}`, { method: "POST" })
-      if (!res.ok) throw new Error("Failed to revert")
-      const updatedApp = await res.json()
+      const updatedApp = await fetchApi(`/api/applications/${appId}/revert/${eventId}`, { method: "POST" })
       await loadBoard()
       setSelectedApp(updatedApp)
       toast.success(`Reverted to ${updatedApp.current_stage.toUpperCase()}`)
     } catch (err) {
-      toast.error("Could not revert")
+      toast.error(err.message || "Could not revert")
     }
   }
 
   const handleUpdateDetails = async (appId, patchPayload) => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}`, {
+      const updatedApp = await fetchApi(`/api/applications/${appId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patchPayload),
       })
-      const updatedApp = await res.json()
       await loadBoard()
       setSelectedApp(updatedApp)
       toast.success("Application details updated")
     } catch (err) {
-      toast.error("Failed to update application")
+      toast.error(err.message || "Failed to update application")
     }
   }
 
   const handleDelete = async (appId) => {
     try {
-      await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}`, { method: "DELETE" })
+      await fetchApi(`/api/applications/${appId}`, { method: "DELETE" })
       await loadBoard()
       setIsDetailsOpen(false)
       toast.success("Application removed")
     } catch (err) {
-      toast.error("Failed to delete application")
+      toast.error(err.message || "Failed to delete application")
     }
   }
 
   const handleGrantConsent = async () => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/connect-google", { method: "POST" })
-      if (!res.ok) throw new Error("Google login failed")
-      const data = await res.json()
+      const data = await fetchApi("/api/mailbox/connect-google", { method: "POST" })
       if (data.auth_url) {
         // Web / serverless OAuth redirect
         window.location.href = data.auth_url
@@ -321,35 +304,32 @@ export default function App() {
         data.user_email ? `Connected as ${data.user_email}` : "Google Account Connected"
       )
     } catch (err) {
-      toast.error("Google authentication cancelled or failed.")
+      toast.error(err.message || "Google authentication cancelled or failed.")
     }
   }
 
 
   const handleDisconnect = async () => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/disconnect", { method: "POST" })
-      const status = await res.json()
+      const status = await fetchApi("/api/mailbox/disconnect", { method: "POST" })
       setConsentStatus(status)
       await loadConsentStatus()
       toast.info("Google Account disconnected")
     } catch (err) {
-      toast.error("Failed to disconnect")
+      toast.error(err.message || "Failed to disconnect")
     }
   }
 
   const handleSyncMailbox = async () => {
     setIsSyncing(true)
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/sync", { method: "POST" })
-      const result = await res.json()
+      const result = await fetchApi("/api/mailbox/sync", { method: "POST" })
       await loadBoard()
       await loadConsentStatus()
-      const discRes = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/pending-discoveries")
-      const discData = await discRes.json()
-      setPendingDiscoveries(discData)
+      const discData = await fetchApi("/api/mailbox/pending-discoveries")
+      setPendingDiscoveries(discData || [])
 
-      if (discData.length > 0) {
+      if (discData && discData.length > 0) {
         setIsDiscoveryPromptOpen(true)
       }
 
@@ -359,7 +339,7 @@ export default function App() {
         toast.info(result.message || "Sync completed")
       }
     } catch (err) {
-      toast.error("Mailbox sync failed")
+      toast.error(err.message || "Mailbox sync failed")
     } finally {
       setIsSyncing(false)
     }
@@ -367,17 +347,15 @@ export default function App() {
 
   const handleSimulateEmail = async (payload) => {
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/simulate-email", {
+      const result = await fetchApi("/api/mailbox/simulate-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
-      const result = await res.json()
       await loadBoard()
       await loadConsentStatus()
-      const discRes = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/pending-discoveries")
-      const discData = await discRes.json()
-      setPendingDiscoveries(discData)
+      const discData = await fetchApi("/api/mailbox/pending-discoveries")
+      setPendingDiscoveries(discData || [])
 
       if (result.matched && result.matched_application) {
         if (result.matched_application.is_pending_confirmation) {
@@ -408,7 +386,7 @@ export default function App() {
         toast.info(result.message || "Email processed (no active match).")
       }
     } catch (err) {
-      toast.error("Simulation failed")
+      toast.error(err.message || "Simulation failed")
     }
   }
 
