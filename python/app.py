@@ -1,5 +1,12 @@
 import os
+
+# Disable Gradio 6 SSR Node proxy to prevent SvelteKit from hijacking API routes (/health, /docs, /api/*)
+os.environ["GRADIO_SSR_MODE"] = "False"
+os.environ["GRADIO_SERVER_MODE_ENABLED"] = "1"
+
 import logging
+from fastapi import Request
+from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
@@ -60,6 +67,19 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 
+@fastapi_app.middleware("http")
+async def json_root_middleware(request: Request, call_next):
+    if request.url.path == "/" and ("application/json" in request.headers.get("accept", "") or "curl" in request.headers.get("user-agent", "").lower()):
+        return JSONResponse({
+            "service": "Application Tracking & Discovery Service",
+            "version": "1.1.0",
+            "status": "online",
+            "background_sync": background_worker.get_status(),
+            "docs_url": "/docs",
+            "health_url": "/health",
+        })
+    return await call_next(request)
+
 fastapi_app.include_router(applications_router)
 fastapi_app.include_router(mailbox_router)
 fastapi_app.include_router(jobs_router)
@@ -84,14 +104,12 @@ def swagger_ui_html():
         swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css",
     )
 
-@fastapi_app.get("/openapi.json", include_in_schema=False)
-def openapi_endpoint():
-    return get_openapi(
-        title="Job Tracker Backend API",
-        version="1.1.0",
-        description="Full-featured lifecycle tracking, automated Gmail status capture, and multi-tier job scraper.",
-        routes=fastapi_app.routes,
-    )
+fastapi_app.openapi = lambda: get_openapi(
+    title="Job Tracker Backend API",
+    version="1.1.0",
+    description="Full-featured lifecycle tracking, automated Gmail status capture, and multi-tier job scraper.",
+    routes=fastapi_app.routes,
+)
 
 # 5. Background sync worker lifecycle
 @fastapi_app.on_event("startup")
@@ -104,8 +122,7 @@ async def on_startup():
 async def on_shutdown():
     await background_worker.stop()
 
-# 6. Launch via demo.launch()
-# In Hugging Face ZeroGPU Spaces, calling demo.launch() without hardcoded host/port allows
-# Gradio to properly hook into the ZeroGPU supervisor without Errno 98 port collisions.
+# 6. Launch via demo.launch(ssr_mode=False)
+# Disabling ssr_mode prevents Gradio 6 from launching the Node SvelteKit front proxy which intercepts GET requests.
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(ssr_mode=False)
