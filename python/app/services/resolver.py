@@ -52,29 +52,48 @@ def resolve_application_match(
     best_match: Optional[Application] = None
     highest_score = 0.0
 
+    event_role_norm = normalize_string(event.role_title)
+
     for app in applications:
         app_company_norm = normalize_string(app.company_name)
         if not app_company_norm:
             continue
 
+        app_role_norm = normalize_string(app.role_title)
+
+        # If this is a new application confirmation and the existing card has a completely different role,
+        # do NOT merge them into the same card.
+        if event.event_category == "application_confirmation" and event_role_norm and app_role_norm:
+            role_sim = fuzz.token_set_ratio(event_role_norm, app_role_norm)
+            if role_sim < 60:
+                continue
+
         score = 0.0
 
         # 1. Exact or direct substring match on company name
         if extracted_company and (extracted_company == app_company_norm or extracted_company in app_company_norm or app_company_norm in extracted_company):
-            score = max(score, 95.0)
+            score = max(score, 90.0)
 
         # 2. Company name present in subject line
         if app_company_norm in normalized_subject:
-            score = max(score, 90.0)
+            score = max(score, 85.0)
 
         # 3. Domain match
         if sender_domain and app.company_domain and sender_domain in app.company_domain.lower():
-            score = max(score, 92.0)
+            score = max(score, 88.0)
 
-        # 4. RapidFuzz token set ratio
+        # 4. RapidFuzz token set ratio on company
         if extracted_company:
             fuzzy_score = fuzz.token_set_ratio(extracted_company, app_company_norm)
             score = max(score, fuzzy_score)
+
+        # 5. Role match bonus / penalty to correctly route to the right position card
+        if app_role_norm and event_role_norm:
+            role_sim = fuzz.token_set_ratio(event_role_norm, app_role_norm)
+            if role_sim >= 65:
+                score += 25.0
+            elif role_sim < 40:
+                score -= 20.0
 
         if score > highest_score and score >= 80.0:
             highest_score = score
@@ -82,9 +101,10 @@ def resolve_application_match(
 
     if best_match:
         logger.info(
-            "Matched email to application %s (%s) with score %.1f",
+            "Matched email to application %s (%s - %s) with score %.1f",
             best_match.id,
             best_match.company_name,
+            best_match.role_title,
             highest_score,
         )
 
