@@ -1,4 +1,15 @@
 import os
+import sys
+
+# Suppress harmless Python 3.12 / Gradio 6 selector event loop destructor warning (ValueError: Invalid file descriptor: -1)
+_default_unraisablehook = sys.unraisablehook
+
+def _suppress_benign_eventloop_unraisable(unraisable):
+    if unraisable.exc_type and issubclass(unraisable.exc_type, ValueError) and "Invalid file descriptor" in str(unraisable.exc_value):
+        return
+    _default_unraisablehook(unraisable)
+
+sys.unraisablehook = _suppress_benign_eventloop_unraisable
 
 # Disable Gradio 6 SSR Node proxy and analytics telemetry
 os.environ["GRADIO_SSR_MODE"] = "False"
