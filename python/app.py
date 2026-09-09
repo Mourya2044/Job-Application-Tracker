@@ -67,6 +67,22 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 
+class NormalizePathMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            if "//" in path:
+                normalized = "/" + "/".join(filter(None, path.split("/")))
+                scope["path"] = normalized
+                if "raw_path" in scope:
+                    scope["raw_path"] = normalized.encode("ascii")
+        await self.app(scope, receive, send)
+
+fastapi_app.add_middleware(NormalizePathMiddleware)
+
 @fastapi_app.middleware("http")
 async def json_root_middleware(request: Request, call_next):
     if request.url.path == "/" and ("application/json" in request.headers.get("accept", "") or "curl" in request.headers.get("user-agent", "").lower()):
