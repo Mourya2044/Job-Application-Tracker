@@ -35,6 +35,6 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 
 GMAIL_PUBSUB_TOPIC = os.getenv("GMAIL_PUBSUB_TOPIC", "projects/gmail-summarise-503906/topics/gmail-event")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://job-application-tracker-one-ruddy.vercel.app").rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://track.mourya.tech").rstrip("/")
 
 
