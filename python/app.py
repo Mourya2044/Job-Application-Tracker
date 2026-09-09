@@ -24,8 +24,9 @@ with gr.Blocks(title="Job Tracker Backend") as demo:
     btn = gr.Button("Ping GPU Status")
     btn.click(fn=dummy_gpu_fn, outputs=status_box)
 
-# Mount the Gradio demo UI onto FastAPI app at /ui
-app = gr.mount_gradio_app(app, demo, path="/ui")
+# Mount the entire FastAPI backend onto Gradio's internal FastAPI app
+# In Gradio 4/5/6, demo.app is the underlying FastAPI application that demo.launch() serves!
+demo.app.mount("/", app)
 
-# In ZeroGPU, demo.launch() must be called to complete startup handshake
+# In ZeroGPU, demo.launch() serves demo.app on port 7860
 demo.launch(server_port=7860)
