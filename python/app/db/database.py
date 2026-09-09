@@ -29,20 +29,23 @@ def init_db():
     from app.db import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
-    # Safe auto-migration for sqlite local dev if columns are added
-    if DATABASE_URL.startswith("sqlite"):
-        new_cols = [
-            ("auto_create_applications", "BOOLEAN DEFAULT 1"),
-            ("refresh_token", "TEXT"),
-            ("access_token", "TEXT"),
-            ("token_expiry", "DATETIME"),
-            ("watch_expiration", "DATETIME"),
-            ("pubsub_topic", "VARCHAR(255)"),
-        ]
-        with engine.connect() as conn:
-            for col_name, col_type in new_cols:
-                try:
+    # Safe auto-migration for sqlite and postgresql if columns are added to existing tables
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    new_cols = [
+        ("auto_create_applications", "BOOLEAN DEFAULT 1" if is_sqlite else "BOOLEAN DEFAULT TRUE"),
+        ("refresh_token", "TEXT"),
+        ("access_token", "TEXT"),
+        ("token_expiry", "DATETIME" if is_sqlite else "TIMESTAMP"),
+        ("watch_expiration", "DATETIME" if is_sqlite else "TIMESTAMP"),
+        ("pubsub_topic", "VARCHAR(255)"),
+    ]
+    with engine.connect() as conn:
+        for col_name, col_type in new_cols:
+            try:
+                if is_sqlite:
                     conn.execute(text(f"ALTER TABLE user_mailbox_consents ADD COLUMN {col_name} {col_type}"))
-                    conn.commit()
-                except Exception:
-                    pass
+                else:
+                    conn.execute(text(f"ALTER TABLE user_mailbox_consents ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass

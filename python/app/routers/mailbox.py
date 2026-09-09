@@ -50,42 +50,68 @@ class SimulateEmailPayload(BaseModel):
 @router.get("/status")
 def get_mailbox_status(db: Session = Depends(get_db)):
     """Check mailbox connection status, OAuth permissions, and live sync statistics."""
-    consent = get_or_create_consent(db)
-    has_token = bool(consent.refresh_token or os.path.exists(TOKEN_FILE))
-    consent.consent_given = has_token
-    consent.is_sync_enabled = has_token
-    db.commit()
+    try:
+        consent = get_or_create_consent(db)
+        has_token = bool(consent.refresh_token or os.path.exists(TOKEN_FILE))
+        consent.consent_given = has_token
+        consent.is_sync_enabled = has_token
+        db.commit()
 
-    total_logs = db.query(EmailLog).count()
-    matched_logs = db.query(EmailLog).filter(EmailLog.match_status.in_(["matched_auto", "suggested"])).count()
-    pending_discoveries_count = db.query(EmailLog).filter(EmailLog.match_status == "untracked_candidate").count()
+        total_logs = db.query(EmailLog).count()
+        matched_logs = db.query(EmailLog).filter(EmailLog.match_status.in_(["matched_auto", "suggested"])).count()
+        pending_discoveries_count = db.query(EmailLog).filter(EmailLog.match_status == "untracked_candidate").count()
 
-    watch_exp = consent.watch_expiration
-    if watch_exp is not None and watch_exp.tzinfo is None:
-        watch_exp = watch_exp.replace(tzinfo=timezone.utc)
-    is_watch_active = bool(watch_exp and watch_exp > utc_now())
+        watch_exp = consent.watch_expiration
+        if watch_exp is not None and watch_exp.tzinfo is None:
+            watch_exp = watch_exp.replace(tzinfo=timezone.utc)
+        is_watch_active = bool(watch_exp and watch_exp > utc_now())
 
-    return {
-        "id": consent.id,
-        "user_email": consent.user_email,
-        "provider": consent.provider,
-        "consent_given": consent.consent_given,
-        "is_sync_enabled": consent.is_sync_enabled,
-        "auto_create_applications": consent.auto_create_applications,
-        "scopes_granted": consent.scopes_granted,
-        "last_synced_at": consent.last_synced_at.isoformat() if consent.last_synced_at else None,
-        "last_history_id": consent.last_history_id,
-        "watch_expiration": consent.watch_expiration.isoformat() if consent.watch_expiration else None,
-        "watch_active": is_watch_active,
-        "pubsub_topic": consent.pubsub_topic or GMAIL_PUBSUB_TOPIC,
-        "has_token_file": has_token,
-        "background_sync": background_worker.get_status(),
-        "stats": {
-            "total_processed_emails": total_logs,
-            "total_matched_updates": matched_logs,
-            "pending_discoveries_count": pending_discoveries_count,
-        },
-    }
+        return {
+            "id": consent.id,
+            "user_email": consent.user_email,
+            "provider": consent.provider,
+            "consent_given": consent.consent_given,
+            "is_sync_enabled": consent.is_sync_enabled,
+            "auto_create_applications": consent.auto_create_applications,
+            "scopes_granted": consent.scopes_granted,
+            "last_synced_at": consent.last_synced_at.isoformat() if consent.last_synced_at else None,
+            "last_history_id": consent.last_history_id,
+            "watch_expiration": consent.watch_expiration.isoformat() if consent.watch_expiration else None,
+            "watch_active": is_watch_active,
+            "pubsub_topic": consent.pubsub_topic or GMAIL_PUBSUB_TOPIC,
+            "has_token_file": has_token,
+            "background_sync": background_worker.get_status(),
+            "stats": {
+                "total_processed_emails": total_logs,
+                "total_matched_updates": matched_logs,
+                "pending_discoveries_count": pending_discoveries_count,
+            },
+        }
+    except Exception as e:
+        logger.error("Error retrieving mailbox status: %s", e, exc_info=True)
+        has_file = os.path.exists(TOKEN_FILE)
+        return {
+            "id": None,
+            "user_email": None,
+            "provider": "google",
+            "consent_given": has_file,
+            "is_sync_enabled": has_file,
+            "auto_create_applications": True,
+            "scopes_granted": None,
+            "last_synced_at": None,
+            "last_history_id": None,
+            "watch_expiration": None,
+            "watch_active": False,
+            "pubsub_topic": GMAIL_PUBSUB_TOPIC,
+            "has_token_file": has_file,
+            "background_sync": background_worker.get_status(),
+            "stats": {
+                "total_processed_emails": 0,
+                "total_matched_updates": 0,
+                "pending_discoveries_count": 0,
+            },
+            "error": str(e),
+        }
 
 
 
