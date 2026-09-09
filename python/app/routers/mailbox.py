@@ -222,10 +222,18 @@ def update_consent(payload: MailboxConsentUpdate, db: Session = Depends(get_db))
 
 def get_effective_redirect_uri(request: Request) -> str:
     """Determine the OAuth callback redirect URI based on config or request headers."""
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    origin = request.headers.get("origin", "")
+    referer = request.headers.get("referer", "")
+
+    # If request is from local dev server
+    if "localhost" in host or "127.0.0.1" in host or "localhost" in origin or "localhost" in referer:
+        return "http://localhost:3000/api/mailbox/callback"
+
     if GOOGLE_REDIRECT_URI:
         return GOOGLE_REDIRECT_URI
+
     proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
     return f"{proto}://{host}/api/mailbox/callback"
 
 
@@ -261,18 +269,22 @@ def google_oauth_callback(
     Google OAuth redirect handler for web deployments.
     Exchanges code for tokens, saves to DB, auto-registers event-based Pub/Sub watch, and redirects user to frontend.
     """
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    is_local = "localhost" in host or "127.0.0.1" in host
+    target_frontend = "http://localhost:3000" if is_local else FRONTEND_URL
+
     if error:
-        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=error&msg={quote(error)}")
+        return RedirectResponse(url=f"{target_frontend}/?oauth=error&msg={quote(error)}")
     if not code:
-        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=error&msg=missing_code")
+        return RedirectResponse(url=f"{target_frontend}/?oauth=error&msg=missing_code")
 
     redirect_uri = get_effective_redirect_uri(request)
     try:
         consent = exchange_oauth_code(code=code, redirect_uri=redirect_uri, db=db)
-        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=success")
+        return RedirectResponse(url=f"{target_frontend}/?oauth=success")
     except Exception as e:
         logger.error("OAuth code exchange failed: %s", e)
-        return RedirectResponse(url=f"{FRONTEND_URL}/?oauth=error&msg={quote(str(e))}")
+        return RedirectResponse(url=f"{target_frontend}/?oauth=error&msg={quote(str(e))}")
 
 
 @router.post("/sync")
