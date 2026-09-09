@@ -487,6 +487,7 @@ async def gmail_pubsub_webhook(
     """
     try:
         raw_body = await request.body()
+        print("Webhook/pubsub POST BODY:", raw_body)
         if not raw_body:
             return Response(
                 status_code=status.HTTP_200_OK,
@@ -504,7 +505,6 @@ async def gmail_pubsub_webhook(
                 media_type="application/json",
             )
 
-        print("Webhook/pubsub POST BODY:", body)
         message = body.get("message", {})
         data_b64 = message.get("data")
         subscription = body.get("subscription", "")
