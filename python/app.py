@@ -83,8 +83,16 @@ class NormalizePathMiddleware:
 
 fastapi_app.add_middleware(NormalizePathMiddleware)
 
+import asyncio
+
 @fastapi_app.middleware("http")
 async def json_root_middleware(request: Request, call_next):
+    if BACKGROUND_SYNC_ENABLED and not background_worker.is_running:
+        try:
+            asyncio.create_task(background_worker.start())
+        except Exception:
+            pass
+
     if request.url.path == "/" and ("application/json" in request.headers.get("accept", "") or "curl" in request.headers.get("user-agent", "").lower()):
         return JSONResponse({
             "service": "Application Tracking & Discovery Service",
