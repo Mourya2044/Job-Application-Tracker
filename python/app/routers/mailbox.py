@@ -60,7 +60,10 @@ def get_mailbox_status(db: Session = Depends(get_db)):
     matched_logs = db.query(EmailLog).filter(EmailLog.match_status.in_(["matched_auto", "suggested"])).count()
     pending_discoveries_count = db.query(EmailLog).filter(EmailLog.match_status == "untracked_candidate").count()
 
-    is_watch_active = bool(consent.watch_expiration and consent.watch_expiration > utc_now())
+    watch_exp = consent.watch_expiration
+    if watch_exp is not None and watch_exp.tzinfo is None:
+        watch_exp = watch_exp.replace(tzinfo=timezone.utc)
+    is_watch_active = bool(watch_exp and watch_exp > utc_now())
 
     return {
         "id": consent.id,
