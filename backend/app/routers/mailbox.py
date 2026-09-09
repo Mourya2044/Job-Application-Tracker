@@ -543,12 +543,15 @@ async def gmail_pubsub_webhook(
         def _run_pubsub_sync(user_email: Optional[str]):
             try:
                 with SessionLocal() as session:
+                    from sqlalchemy import func
                     query = session.query(UserMailboxConsent).filter(
                         UserMailboxConsent.consent_given == True,  # noqa: E712
                         UserMailboxConsent.is_sync_enabled == True,  # noqa: E712
                     )
                     if user_email:
-                        target_consent = query.filter(UserMailboxConsent.user_email == user_email).first()
+                        target_consent = query.filter(
+                            func.lower(UserMailboxConsent.user_email) == user_email.lower().strip()
+                        ).first()
                         consents_to_sync = [target_consent] if target_consent else query.all()
                     else:
                         consents_to_sync = query.all()
@@ -556,11 +559,12 @@ async def gmail_pubsub_webhook(
                     for c in consents_to_sync:
                         try:
                             logger.info("Triggering incremental history sync for %s via Pub/Sub event", c.user_email)
-                            sync_mailbox_history_events(session, consent=c)
+                            result = sync_mailbox_history_events(session, consent=c)
+                            logger.info("Pub/Sub sync completed for %s: %s updates detected", c.user_email, result.get("updates_count", 0))
                         except Exception as sync_err:
-                            logger.error("Error during Pub/Sub triggered sync for %s: %s", c.user_email, sync_err)
+                            logger.error("Error during Pub/Sub triggered sync for %s: %s", c.user_email, sync_err, exc_info=True)
             except Exception as bg_err:
-                logger.error("Error in background Pub/Sub sync runner: %s", bg_err)
+                logger.error("Error in background Pub/Sub sync runner: %s", bg_err, exc_info=True)
 
         background_tasks.add_task(_run_pubsub_sync, target_email)
 

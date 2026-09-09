@@ -39,14 +39,12 @@ def dummy_gpu_fn():
 
 import gradio as gr
 
-# 2. Import application routers and background worker
+# 2. Import application routers
 from app.main import (
     applications_router,
     mailbox_router,
     jobs_router,
-    background_worker,
 )
-from app.config import BACKGROUND_SYNC_ENABLED
 from app.db.database import init_db
 
 # 3. Create Gradio interface for Hugging Face Space UI
@@ -99,18 +97,12 @@ import asyncio
 
 @fastapi_app.middleware("http")
 async def json_root_middleware(request: Request, call_next):
-    if BACKGROUND_SYNC_ENABLED and not background_worker._bootstrapped and not background_worker.is_paused:
-        try:
-            asyncio.create_task(background_worker.start())
-        except Exception:
-            pass
-
     if request.url.path == "/" and ("application/json" in request.headers.get("accept", "") or "curl" in request.headers.get("user-agent", "").lower()):
         return JSONResponse({
             "service": "Application Tracking & Discovery Service",
             "version": "1.1.0",
             "status": "online",
-            "background_sync": background_worker.get_status(),
+            "sync_mode": "pubsub_webhook",
             "docs_url": "/docs",
             "health_url": "/health",
         })
@@ -120,13 +112,26 @@ fastapi_app.include_router(applications_router)
 fastapi_app.include_router(mailbox_router)
 fastapi_app.include_router(jobs_router)
 
+# Mount Pub/Sub webhook handlers at root-level and /api aliases so any GCP push configuration succeeds
+from app.routers.mailbox import gmail_pubsub_webhook, verify_pubsub_endpoint
+
+fastapi_app.add_api_route("/webhook", gmail_pubsub_webhook, methods=["POST"], tags=["mailbox"])
+fastapi_app.add_api_route("/pubsub", gmail_pubsub_webhook, methods=["POST"], tags=["mailbox"])
+fastapi_app.add_api_route("/api/webhook", gmail_pubsub_webhook, methods=["POST"], tags=["mailbox"])
+fastapi_app.add_api_route("/api/pubsub", gmail_pubsub_webhook, methods=["POST"], tags=["mailbox"])
+
+fastapi_app.add_api_route("/webhook", verify_pubsub_endpoint, methods=["GET"], tags=["mailbox"])
+fastapi_app.add_api_route("/pubsub", verify_pubsub_endpoint, methods=["GET"], tags=["mailbox"])
+fastapi_app.add_api_route("/api/webhook", verify_pubsub_endpoint, methods=["GET"], tags=["mailbox"])
+fastapi_app.add_api_route("/api/pubsub", verify_pubsub_endpoint, methods=["GET"], tags=["mailbox"])
+
 @fastapi_app.get("/health", tags=["system"])
 def health():
     return {
         "service": "Application Tracking & Discovery Service",
         "version": "1.1.0",
         "status": "online",
-        "background_sync": background_worker.get_status(),
+        "sync_mode": "pubsub_webhook",
         "docs_url": "/docs",
     }
 
@@ -147,7 +152,7 @@ fastapi_app.openapi = lambda: get_openapi(
     routes=fastapi_app.routes,
 )
 
-# 5. Background sync worker lifecycle using modern FastAPI lifespan context
+# 5. Database lifecycle using modern FastAPI lifespan context
 from contextlib import asynccontextmanager
 
 _original_lifespan = fastapi_app.router.lifespan_context
@@ -155,14 +160,11 @@ _original_lifespan = fastapi_app.router.lifespan_context
 @asynccontextmanager
 async def lifespan(app):
     init_db()
-    if BACKGROUND_SYNC_ENABLED:
-        await background_worker.start()
     if _original_lifespan:
         async with _original_lifespan(app) as maybe_state:
             yield maybe_state
     else:
         yield
-    await background_worker.stop()
 
 fastapi_app.router.lifespan_context = lifespan
 

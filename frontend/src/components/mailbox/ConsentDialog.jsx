@@ -185,78 +185,43 @@ export function ConsentDialog({
           )}
         </div>
 
-        {/* Background Event-Based Worker Section */}
+        {/* Real-Time Event-Based Webhook Section */}
         <div className="rounded-lg border border-border/60 bg-card/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Zap className={`w-4 h-4 ${bgWorker?.is_running ? "text-amber-400" : "text-muted-foreground"}`} />
+              <Zap className="w-4 h-4 text-emerald-400" />
               <div>
-                <span className="text-xs font-semibold text-foreground block">Background Auto-Sync</span>
+                <span className="text-xs font-semibold text-foreground block">Real-time Push Notifications</span>
                 <span className="text-[11px] text-muted-foreground">
-                  Periodic history event synchronization in background
+                  Google Cloud Pub/Sub webhook delivers updates instantly without polling
                 </span>
               </div>
             </div>
 
-            <Button
-              size="sm"
-              variant={bgWorker?.is_running ? "outline" : "default"}
-              onClick={handleToggleBackgroundSync}
-              disabled={isBgToggling}
-              className="h-7 text-xs px-3"
-            >
-              {bgWorker?.is_running ? "Pause" : "Enable"}
-            </Button>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Webhook Active
+            </span>
           </div>
 
           {/* Telemetry row */}
           <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/40 text-[11px]">
             <div className="p-2 rounded bg-muted/20 border border-border/40">
-              <span className="text-muted-foreground block text-[10px]">Worker Status</span>
-              <span className={`font-semibold capitalize ${bgWorker?.is_running ? "text-emerald-400" : "text-muted-foreground"}`}>
-                {bgWorker?.is_running ? bgWorker?.last_status || "Active" : "Paused"}
+              <span className="text-muted-foreground block text-[10px]">Sync Mode</span>
+              <span className="font-semibold text-emerald-400">
+                Push Webhook
               </span>
             </div>
             <div className="p-2 rounded bg-muted/20 border border-border/40">
-              <span className="text-muted-foreground block text-[10px]">Total Cycles</span>
+              <span className="text-muted-foreground block text-[10px]">Processed Emails</span>
               <span className="font-semibold text-foreground">
-                {bgWorker?.total_cycles || 0}
+                {consentStatus?.stats?.total_processed_emails || 0}
               </span>
             </div>
             <div className="p-2 rounded bg-muted/20 border border-border/40">
               <span className="text-muted-foreground block text-[10px]">Auto Updates</span>
               <span className="font-semibold text-sky-400">
-                {bgWorker?.total_updates_detected || 0}
+                {consentStatus?.stats?.total_matched_updates || 0}
               </span>
-            </div>
-          </div>
-
-          {/* Interval Selector */}
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              Check frequency:
-            </span>
-
-            <div className="flex items-center gap-1">
-              {[
-                { label: "1m", sec: 60 },
-                { label: "2m", sec: 120 },
-                { label: "5m", sec: 300 },
-                { label: "15m", sec: 900 },
-              ].map(opt => (
-                <button
-                  key={opt.sec}
-                  onClick={() => handleChangeInterval(opt.sec)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${
-                    (bgWorker?.interval_seconds || bgSyncInterval) === opt.sec
-                      ? "bg-primary/20 border-primary text-primary"
-                      : "bg-muted/30 border-border/50 text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
             </div>
           </div>
         </div>

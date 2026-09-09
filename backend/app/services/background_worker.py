@@ -40,6 +40,7 @@ class GmailBackgroundSyncWorker:
         return {
             "is_running": self.is_running,
             "is_paused": self.is_paused,
+            "mode": "event_driven_pubsub_webhook",
             "interval_seconds": self.interval_seconds,
             "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
             "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
@@ -53,6 +54,12 @@ class GmailBackgroundSyncWorker:
     async def start(self):
         async with self._lock:
             self._bootstrapped = True
+            if not BACKGROUND_SYNC_ENABLED:
+                logger.info("Background sync polling worker is disabled. Relying on event-based Pub/Sub webhooks.")
+                self.is_running = False
+                self.last_status = "disabled"
+                return
+
             self.is_paused = False
             if self.is_running:
                 logger.info("Background sync worker is already running.")

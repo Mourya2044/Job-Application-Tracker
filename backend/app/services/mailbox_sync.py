@@ -264,7 +264,6 @@ def sync_mailbox_history_events(
                 .list(
                     userId="me",
                     startHistoryId=consent.last_history_id,
-                    historyTypes=["messageAdded"],
                 )
                 .execute()
             )
@@ -280,10 +279,30 @@ def sync_mailbox_history_events(
         new_msg_ids = set()
         for rec in records:
             for added in rec.get("messagesAdded", []):
-                msg_info = added.get("message", {})
-                mid = msg_info.get("id")
+                mid = added.get("message", {}).get("id")
                 if mid:
                     new_msg_ids.add(mid)
+            for msg in rec.get("messages", []):
+                mid = msg.get("id")
+                if mid:
+                    new_msg_ids.add(mid)
+            for label_added in rec.get("labelsAdded", []):
+                mid = label_added.get("message", {}).get("id")
+                if mid:
+                    new_msg_ids.add(mid)
+
+        # Fallback safeguard: if history list returned 0 new messages but an event triggered,
+        # inspect recent messages (last 5) to catch any newly arrived message that was filed under inbox/updates
+        if not new_msg_ids:
+            try:
+                recent_res = service.users().messages().list(userId="me", maxResults=5).execute()
+                for m in recent_res.get("messages", []):
+                    mid = m.get("id")
+                    if mid:
+                        if not db.query(EmailLog.id).filter(EmailLog.message_id == mid).first():
+                            new_msg_ids.add(mid)
+            except Exception as recent_err:
+                logger.debug("Recent messages fallback check error: %s", recent_err)
 
         processed_count = 0
         updates_count = 0
