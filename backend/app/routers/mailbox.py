@@ -504,6 +504,7 @@ async def gmail_pubsub_webhook(
                 media_type="application/json",
             )
 
+        print("Webhook/pubsub POST BODY:", body)
         message = body.get("message", {})
         data_b64 = message.get("data")
         subscription = body.get("subscription", "")
