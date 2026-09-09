@@ -47,6 +47,12 @@ from app.main import (
 )
 from app.db.database import init_db
 
+# Initialize database schema and ensure all tables/columns exist immediately
+try:
+    init_db()
+except Exception as _init_err:
+    print(f"Warning: Initial DB schema check deferred: {_init_err}")
+
 # 3. Create Gradio interface for Hugging Face Space UI
 with gr.Blocks(title="Job Tracker Backend", analytics_enabled=False) as demo:
     gr.Markdown("# 🚀 Job Tracker API & Background Sync Worker")

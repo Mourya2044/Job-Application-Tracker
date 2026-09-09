@@ -1,10 +1,11 @@
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from app.db.database import get_db
+from app.db.database import get_db, init_db
 from app.db.models import (
     Application,
     ApplicationStatusEvent,
@@ -27,13 +28,21 @@ from app.services.change_tracker import (
     update_stage_manually,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
 
 @router.get("", response_model=KanbanBoardResponse)
 def list_applications_kanban(db: Session = Depends(get_db)):
     """Retrieve all tracked applications organized into Kanban lifecycle stage columns."""
-    return get_kanban_board(db)
+    try:
+        return get_kanban_board(db)
+    except Exception as e:
+        logger.error("Error retrieving Kanban board (%s). Attempting schema self-heal...", e)
+        db.rollback()
+        init_db()
+        return get_kanban_board(db)
 
 
 @router.get("/{application_id}", response_model=ApplicationRead)
