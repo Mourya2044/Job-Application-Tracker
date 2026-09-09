@@ -31,8 +31,7 @@ from app.services.consent_manager import (
 from app.services.background_worker import background_worker
 
 from app.services.mailbox_sync import (
-    setup_gmail_watch,
-    stop_gmail_watch,
+
     sync_mailbox_events,
     sync_mailbox_history_events,
 )
@@ -271,14 +270,6 @@ def google_oauth_callback(
     try:
         consent = exchange_oauth_code(code=code, redirect_uri=redirect_uri, db=db)
 
-        # Automatically register real-time Pub/Sub push watch for this user account if topic is configured
-        topic = GMAIL_PUBSUB_TOPIC or consent.pubsub_topic
-        if topic:
-            try:
-                watch_res = setup_gmail_watch(db, topic_name=topic, consent=consent)
-                logger.info("Automatic Gmail push watch registered for %s: %s", consent.user_email, watch_res)
-            except Exception as watch_err:
-                logger.warning("Could not auto-register Gmail watch for %s: %s", consent.user_email, watch_err)
 
         return RedirectResponse(url="/?oauth=success")
     except Exception as e:
@@ -296,10 +287,6 @@ def trigger_sync(db: Session = Depends(get_db)):
 @router.post("/disconnect", response_model=MailboxConsentRead)
 def disconnect_mailbox(db: Session = Depends(get_db)):
     """Disconnect mailbox, stop Gmail watch, revoke token online, and delete credentials."""
-    try:
-        stop_gmail_watch(db)
-    except Exception as e:
-        logger.warning("Failed to stop Gmail push watch on disconnect: %s", e)
     return revoke_consent(db)
 
 
@@ -401,14 +388,6 @@ class BackgroundSyncConfigPayload(BaseModel):
     interval_seconds: int = Field(120, ge=10, le=3600, description="Interval in seconds between background sync loops")
 
 
-class WatchPayload(BaseModel):
-    topic_name: Optional[str] = Field(None, description="Google Cloud Pub/Sub topic string")
-
-
-class PubSubPushPayload(BaseModel):
-    message: dict = Field(..., description="Google Cloud Pub/Sub push message object")
-    subscription: Optional[str] = None
-
 
 @router.get("/background-sync")
 def get_background_sync_status():
@@ -446,86 +425,3 @@ async def trigger_background_sync_cycle():
         "result": result,
         "worker": background_worker.get_status(),
     }
-
-
-@router.post("/watch")
-def setup_push_watch(payload: Optional[WatchPayload] = None, db: Session = Depends(get_db)):
-    """
-    Subscribes mailbox to Google Cloud Pub/Sub push notifications via Gmail API users().watch().
-    Enables event-driven updates for each user account.
-    """
-    consent = get_or_create_consent(db)
-    topic = (payload.topic_name if payload and payload.topic_name else None) or consent.pubsub_topic or GMAIL_PUBSUB_TOPIC
-    if not topic:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No Google Cloud Pub/Sub topic configured. Set GMAIL_PUBSUB_TOPIC in environment variables.",
-        )
-    return setup_gmail_watch(db, topic_name=topic, consent=consent)
-
-
-@router.post("/stop-watch")
-def stop_push_watch(db: Session = Depends(get_db)):
-    """Unsubscribe mailbox from Gmail push notifications."""
-    return stop_gmail_watch(db)
-
-
-@router.post("/webhook")
-def receive_pubsub_webhook(payload: PubSubPushPayload, db: Session = Depends(get_db)):
-    """
-    Google Cloud Pub/Sub Push Webhook Receiver:
-    Triggered in real-time when any external logged-in user receives an email.
-    Decodes the user's email address and historyId, and performs an incremental history event sync.
-    """
-    msg = payload.message
-    raw_data = msg.get("data")
-    if not raw_data:
-        return {"status": "ignored", "reason": "No data in message"}
-
-    try:
-        decoded_bytes = base64.b64decode(raw_data)
-        notification = json.loads(decoded_bytes.decode("utf-8"))
-    except Exception as e:
-        logger.warning("Could not decode Pub/Sub data payload: %s", e)
-        return {"status": "error", "message": "Invalid base64 payload"}
-
-    email_address = notification.get("emailAddress")
-    history_id = notification.get("historyId")
-
-    logger.info("Received Pub/Sub push event for email: %s, historyId: %s", email_address, history_id)
-
-    # Find the target user in database
-    consent = None
-    if email_address:
-        consent = (
-            db.query(UserMailboxConsent)
-            .filter(UserMailboxConsent.user_email == email_address)
-            .first()
-        )
-
-    if not consent:
-        consent = get_or_create_consent(db)
-
-    # Execute incremental event sync
-    result = sync_mailbox_history_events(db, consent=consent)
-
-    # Auto-renew watch if within 24 hours of expiration
-    if consent.watch_expiration:
-        remaining_seconds = (consent.watch_expiration - utc_now()).total_seconds()
-        if remaining_seconds < 86400:
-            try:
-                topic = consent.pubsub_topic or GMAIL_PUBSUB_TOPIC
-                if topic:
-                    setup_gmail_watch(db, topic_name=topic, consent=consent)
-                    logger.info("Auto-renewed Gmail watch for %s", consent.user_email)
-            except Exception as renew_err:
-                logger.warning("Could not auto-renew watch for %s: %s", consent.user_email, renew_err)
-
-    return {
-        "status": "processed",
-        "email_address": email_address,
-        "history_id": history_id,
-        "sync_result": result,
-    }
-
-

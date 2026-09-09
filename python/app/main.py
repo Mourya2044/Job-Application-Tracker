@@ -54,6 +54,7 @@ app.include_router(jobs_router)
 
 
 @app.get("/")
+@app.get("/health")
 def root():
     return {
         "service": "Application Tracking & Discovery Service",

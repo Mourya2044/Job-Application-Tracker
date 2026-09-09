@@ -28,7 +28,7 @@ export function SyncActivityDrawer({
   const loadActivities = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch("/api/mailbox/activity?limit=25")
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/activity?limit=25")
       const data = await res.json()
       setActivities(data)
     } catch (err) {

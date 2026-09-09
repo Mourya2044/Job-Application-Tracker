@@ -11,3 +11,5 @@ sqlalchemy
 rapidfuzz
 pytest
 psycopg2-binary
+httpx
+gradio

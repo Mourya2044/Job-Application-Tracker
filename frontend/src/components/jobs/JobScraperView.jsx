@@ -51,7 +51,7 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
 
   const loadCuratedCompanies = async () => {
     try {
-      const res = await fetch("/api/jobs/popular-companies")
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/jobs/popular-companies")
       const data = await res.json()
       setCuratedCompanies(data)
     } catch (err) {
@@ -64,7 +64,7 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
     setIsLoading(true)
     setSingleJob(null)
     try {
-      const res = await fetch(`/api/jobs/scrape/ats?provider=${provider}&company=${encodeURIComponent(slug)}`)
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/jobs/scrape/ats?provider=${provider}&company=${encodeURIComponent(slug)}`)
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.detail || "Failed to scrape ATS jobs")
@@ -86,7 +86,7 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
     setJobs([])
     setSingleJob(null)
     try {
-      const res = await fetch("/api/jobs/scrape/url", {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/jobs/scrape/url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: urlInput.trim() }),
@@ -110,7 +110,7 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
     setIsLoading(true)
     setSingleJob(null)
     try {
-      const res = await fetch(`/api/jobs/search?query=${encodeURIComponent(feedQuery.trim())}&limit=20`)
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/jobs/search?query=${encodeURIComponent(feedQuery.trim())}&limit=20`)
       if (!res.ok) throw new Error("Feed query failed")
       const data = await res.json()
       setJobs(data)
@@ -125,7 +125,7 @@ export function JobScraperView({ onImportJob, trackedUrls = [] }) {
 
   const handleTrackJob = async (job, stage = "applied") => {
     try {
-      const res = await fetch("/api/jobs/import", {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/jobs/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job, target_stage: stage }),

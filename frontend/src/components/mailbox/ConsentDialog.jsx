@@ -90,25 +90,7 @@ export function ConsentDialog({
     }
   }
 
-  const [isWatchRegistering, setIsWatchRegistering] = useState(false)
 
-  const handleSubscribeWatch = async () => {
-    setIsWatchRegistering(true)
-    try {
-      const res = await fetch("/api/mailbox/watch", { method: "POST" })
-      const data = await res.json()
-      if (data.status === "success") {
-        toast.success("Real-time Pub/Sub push watch active!")
-        if (onReloadStatus) onReloadStatus()
-      } else {
-        toast.error(data.message || "Failed to setup push watch")
-      }
-    } catch (e) {
-      toast.error("Failed to connect push watch")
-    } finally {
-      setIsWatchRegistering(false)
-    }
-  }
 
   const handleToggleBackgroundSync = async () => {
 
@@ -117,7 +99,7 @@ export function ConsentDialog({
       const endpoint = bgWorker?.is_running
         ? "/api/mailbox/background-sync/stop"
         : "/api/mailbox/background-sync/start"
-      const res = await fetch(endpoint, { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || "") + endpoint, { method: "POST" })
       if (!res.ok) throw new Error("Could not toggle background sync")
       toast.success(
         bgWorker?.is_running ? "Background auto-sync paused" : "Background auto-sync activated!"
@@ -133,7 +115,7 @@ export function ConsentDialog({
   const handleChangeInterval = async (newSecs) => {
     setBgSyncInterval(newSecs)
     try {
-      const res = await fetch("/api/mailbox/background-sync/configure", {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/background-sync/configure", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ interval_seconds: newSecs }),
@@ -149,7 +131,7 @@ export function ConsentDialog({
   const handleTriggerBackgroundCycle = async () => {
     setIsProcessing(true)
     try {
-      const res = await fetch("/api/mailbox/background-sync/trigger", { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/background-sync/trigger", { method: "POST" })
       const data = await res.json()
       const updates = data.result?.cycle_updates || 0
       toast.success(`Background cycle complete: ${updates} updates detected`)
@@ -282,37 +264,7 @@ export function ConsentDialog({
           </div>
         </div>
 
-        {/* Real-Time Push / Pub-Sub Watch Status */}
-        <div className="p-3 rounded-lg border border-border/50 bg-muted/10 space-y-2 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-medium text-foreground text-[11px] flex items-center gap-1.5">
-              <Radio className={`w-3.5 h-3.5 ${consentStatus?.watch_active || consentStatus?.watch_expiration ? "text-emerald-400 animate-pulse" : "text-violet-400"}`} />
-              Event-Driven Pub/Sub Push Watch
-            </span>
-            <div className="flex items-center gap-1.5">
-              <Badge variant="outline" className={`text-[10px] ${consentStatus?.watch_active || consentStatus?.watch_expiration ? "text-emerald-400 border-emerald-500/40 bg-emerald-500/10" : "text-muted-foreground border-border/60"}`}>
-                {consentStatus?.watch_active || consentStatus?.watch_expiration ? "Active (Real-time)" : "Standby"}
-              </Badge>
-              {isConnected && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-[10px] px-2 border-border/60 gap-1"
-                  onClick={handleSubscribeWatch}
-                  disabled={isWatchRegistering}
-                >
-                  <RefreshCw className={`w-2.5 h-2.5 ${isWatchRegistering ? "animate-spin" : ""}`} />
-                  {isWatchRegistering ? "Connecting..." : (consentStatus?.watch_expiration ? "Renew" : "Subscribe")}
-                </Button>
-              )}
-            </div>
-          </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            {consentStatus?.watch_expiration
-              ? `Subscribed to Google Cloud Pub/Sub real-time webhook. Expires ${new Date(consentStatus.watch_expiration).toLocaleDateString()}. Status updates trigger immediately when emails arrive.`
-              : "Google Cloud Pub/Sub sends instantaneous webhook notifications directly to your serverless backend when employers send emails."}
-          </p>
-        </div>
+
 
 
         {isProcessing && statusMessage && (

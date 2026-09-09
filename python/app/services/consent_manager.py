@@ -292,12 +292,6 @@ def perform_google_login(db: Session) -> UserMailboxConsent:
     db.commit()
     db.refresh(consent)
 
-    if GMAIL_PUBSUB_TOPIC:
-        try:
-            from app.services.mailbox_sync import setup_gmail_watch
-            setup_gmail_watch(db, topic_name=GMAIL_PUBSUB_TOPIC, consent=consent)
-        except Exception as e:
-            logger.warning("Could not auto-register Gmail watch for %s: %s", consent.user_email, e)
 
     return consent
 

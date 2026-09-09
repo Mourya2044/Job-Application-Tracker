@@ -80,7 +80,7 @@ export default function App() {
     const interval = setInterval(async () => {
 
       try {
-        const res = await fetch("/api/mailbox/status")
+        const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/status")
         if (res.ok) {
           const data = await res.json()
           setConsentStatus(prev => {
@@ -104,7 +104,7 @@ export default function App() {
 
   const loadBoard = async () => {
     try {
-      const res = await fetch("/api/applications")
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/applications")
       const data = await res.json()
       setBoardData(data)
     } catch (err) {
@@ -115,7 +115,7 @@ export default function App() {
 
   const loadConsentStatus = async () => {
     try {
-      const res = await fetch("/api/mailbox/status")
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/status")
       const data = await res.json()
       setConsentStatus(data)
     } catch (err) {
@@ -125,7 +125,7 @@ export default function App() {
 
   const loadPendingDiscoveries = async () => {
     try {
-      const res = await fetch("/api/mailbox/pending-discoveries")
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/pending-discoveries")
       const data = await res.json()
       setPendingDiscoveries(data)
     } catch (err) {
@@ -135,7 +135,7 @@ export default function App() {
 
   const handleOpenDetails = async (app) => {
     try {
-      const res = await fetch(`/api/applications/${app.id}`)
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${app.id}`)
       const fullApp = await res.json()
       setSelectedApp(fullApp)
       setIsDetailsOpen(true)
@@ -147,7 +147,7 @@ export default function App() {
 
   const handleAddApplication = async (newAppPayload) => {
     try {
-      const res = await fetch("/api/applications", {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newAppPayload),
@@ -162,7 +162,7 @@ export default function App() {
 
   const handleAcceptDiscovery = async (logId) => {
     try {
-      const res = await fetch(`/api/mailbox/accept-discovery/${logId}`, { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/mailbox/accept-discovery/${logId}`, { method: "POST" })
       if (!res.ok) throw new Error("Failed to accept discovery")
       const newApp = await res.json()
       await loadBoard()
@@ -176,7 +176,7 @@ export default function App() {
 
   const handleDismissDiscovery = async (logId) => {
     try {
-      await fetch(`/api/mailbox/dismiss-discovery/${logId}`, { method: "POST" })
+      await fetch((import.meta.env.VITE_API_URL || '') + `/api/mailbox/dismiss-discovery/${logId}`, { method: "POST" })
       await loadPendingDiscoveries()
       await loadConsentStatus()
       toast.info("Discovery dismissed")
@@ -188,7 +188,7 @@ export default function App() {
   const handleClearAllData = async () => {
     if (!window.confirm("Are you sure you want to clear all tracked applications and history?")) return
     try {
-      await fetch("/api/applications/clear", { method: "POST" })
+      await fetch((import.meta.env.VITE_API_URL || '') + "/api/applications/clear", { method: "POST" })
       await loadBoard()
       await loadPendingDiscoveries()
       toast.info("All applications cleared")
@@ -208,7 +208,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`/api/applications/${appId}/stage`, {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}/stage`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -246,7 +246,7 @@ export default function App() {
 
   const handleToggleLock = async (appId) => {
     try {
-      const res = await fetch(`/api/applications/${appId}/lock`, { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}/lock`, { method: "POST" })
       const updatedApp = await res.json()
       await loadBoard()
       if (selectedApp && selectedApp.id === appId) {
@@ -267,7 +267,7 @@ export default function App() {
 
   const handleRevertStage = async (appId, eventId) => {
     try {
-      const res = await fetch(`/api/applications/${appId}/revert/${eventId}`, { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}/revert/${eventId}`, { method: "POST" })
       if (!res.ok) throw new Error("Failed to revert")
       const updatedApp = await res.json()
       await loadBoard()
@@ -280,7 +280,7 @@ export default function App() {
 
   const handleUpdateDetails = async (appId, patchPayload) => {
     try {
-      const res = await fetch(`/api/applications/${appId}`, {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patchPayload),
@@ -296,7 +296,7 @@ export default function App() {
 
   const handleDelete = async (appId) => {
     try {
-      await fetch(`/api/applications/${appId}`, { method: "DELETE" })
+      await fetch((import.meta.env.VITE_API_URL || '') + `/api/applications/${appId}`, { method: "DELETE" })
       await loadBoard()
       setIsDetailsOpen(false)
       toast.success("Application removed")
@@ -307,7 +307,7 @@ export default function App() {
 
   const handleGrantConsent = async () => {
     try {
-      const res = await fetch("/api/mailbox/connect-google", { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/connect-google", { method: "POST" })
       if (!res.ok) throw new Error("Google login failed")
       const data = await res.json()
       if (data.auth_url) {
@@ -328,7 +328,7 @@ export default function App() {
 
   const handleDisconnect = async () => {
     try {
-      const res = await fetch("/api/mailbox/disconnect", { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/disconnect", { method: "POST" })
       const status = await res.json()
       setConsentStatus(status)
       await loadConsentStatus()
@@ -341,11 +341,11 @@ export default function App() {
   const handleSyncMailbox = async () => {
     setIsSyncing(true)
     try {
-      const res = await fetch("/api/mailbox/sync", { method: "POST" })
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/sync", { method: "POST" })
       const result = await res.json()
       await loadBoard()
       await loadConsentStatus()
-      const discRes = await fetch("/api/mailbox/pending-discoveries")
+      const discRes = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/pending-discoveries")
       const discData = await discRes.json()
       setPendingDiscoveries(discData)
 
@@ -367,7 +367,7 @@ export default function App() {
 
   const handleSimulateEmail = async (payload) => {
     try {
-      const res = await fetch("/api/mailbox/simulate-email", {
+      const res = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/simulate-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -375,7 +375,7 @@ export default function App() {
       const result = await res.json()
       await loadBoard()
       await loadConsentStatus()
-      const discRes = await fetch("/api/mailbox/pending-discoveries")
+      const discRes = await fetch((import.meta.env.VITE_API_URL || '') + "/api/mailbox/pending-discoveries")
       const discData = await discRes.json()
       setPendingDiscoveries(discData)
 
