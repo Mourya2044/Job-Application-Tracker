@@ -26,6 +26,7 @@ class LifecycleStage(str, Enum):
     APPLIED = "applied"
     SCREENING = "screening"
     INTERVIEWING = "interviewing"
+    INTERVIEW = "interview"
     OFFER = "offer"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
@@ -61,6 +62,9 @@ class Application(Base):
     interview_link = Column(String(1024), nullable=True)
     manual_notes = Column(Text, nullable=True)
     pending_suggestion = Column(Text, nullable=True)  # JSON string for proposed auto updates when locked
+
+    applied_date = Column(DateTime, nullable=True, default=utc_now)
+    tags = Column(Text, nullable=True)  # Comma-separated or JSON list of tags
 
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
@@ -135,3 +139,19 @@ class UserMailboxConsent(Base):
     pubsub_topic = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+
+class SavedJob(Base):
+    __tablename__ = "saved_jobs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    title = Column(String(255), nullable=False)
+    company_name = Column(String(255), nullable=False, index=True)
+    company_logo_color = Column(String(50), nullable=True)
+    location = Column(String(255), nullable=True)
+    job_type = Column(String(100), nullable=True)  # Full-time, Remote, etc.
+    salary_range = Column(String(255), nullable=True)
+    job_url = Column(String(1024), nullable=True)
+    tags = Column(Text, nullable=True)  # JSON or comma-separated
+    posted_date = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)

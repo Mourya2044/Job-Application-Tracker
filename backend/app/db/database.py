@@ -31,7 +31,7 @@ def init_db():
 
     # Safe auto-migration for sqlite and postgresql if columns are added to existing tables
     is_sqlite = DATABASE_URL.startswith("sqlite")
-    new_cols = [
+    consent_cols = [
         ("auto_create_applications", "BOOLEAN DEFAULT 1" if is_sqlite else "BOOLEAN DEFAULT TRUE"),
         ("refresh_token", "TEXT"),
         ("access_token", "TEXT"),
@@ -39,13 +39,27 @@ def init_db():
         ("watch_expiration", "DATETIME" if is_sqlite else "TIMESTAMP"),
         ("pubsub_topic", "VARCHAR(255)"),
     ]
+    app_cols = [
+        ("applied_date", "DATETIME" if is_sqlite else "TIMESTAMP"),
+        ("tags", "TEXT"),
+    ]
     with engine.connect() as conn:
-        for col_name, col_type in new_cols:
+        for col_name, col_type in consent_cols:
             try:
                 if is_sqlite:
                     conn.execute(text(f"ALTER TABLE user_mailbox_consents ADD COLUMN {col_name} {col_type}"))
                 else:
                     conn.execute(text(f"ALTER TABLE user_mailbox_consents ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass
+
+        for col_name, col_type in app_cols:
+            try:
+                if is_sqlite:
+                    conn.execute(text(f"ALTER TABLE applications ADD COLUMN {col_name} {col_type}"))
+                else:
+                    conn.execute(text(f"ALTER TABLE applications ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
                 conn.commit()
             except Exception:
                 pass

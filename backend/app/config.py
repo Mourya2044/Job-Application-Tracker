@@ -14,8 +14,13 @@ DB_PATH = BASE_DIR / "tracking.db"
 raw_db_url = os.getenv("DATABASE_URL")
 if raw_db_url:
     # Some providers like Supabase or Heroku output postgres:// which SQLAlchemy deprecated in favor of postgresql://
-    if raw_db_url.startswith("postgres://"):
-        DATABASE_URL = raw_db_url.replace("postgres://", "postgresql://", 1)
+    if raw_db_url.startswith("postgres://") or "postgresql" in raw_db_url:
+        try:
+            import psycopg2  # noqa: F401
+            DATABASE_URL = raw_db_url.replace("postgres://", "postgresql://", 1)
+        except ImportError:
+            # Fallback to local SQLite if postgresql driver (psycopg2) is not installed on this system
+            DATABASE_URL = f"sqlite:///{DB_PATH}"
     else:
         DATABASE_URL = raw_db_url
 else:

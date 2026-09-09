@@ -33,6 +33,8 @@ router = APIRouter(prefix="/api/applications", tags=["applications"])
 @router.get("", response_model=KanbanBoardResponse)
 def list_applications_kanban(db: Session = Depends(get_db)):
     """Retrieve all tracked applications organized into Kanban lifecycle stage columns."""
+    if db.query(Application).count() == 0:
+        seed_demo_applications(db)
     return get_kanban_board(db)
 
 
@@ -48,6 +50,7 @@ def get_application(application_id: str, db: Session = Depends(get_db)):
 @router.post("", response_model=ApplicationRead, status_code=status.HTTP_201_CREATED)
 def create_application(payload: ApplicationCreate, db: Session = Depends(get_db)):
     """Create or ingest an application record from upstream."""
+    target_stage = payload.current_stage.value
     app = Application(
         company_name=payload.company_name,
         company_domain=payload.company_domain,
@@ -55,11 +58,13 @@ def create_application(payload: ApplicationCreate, db: Session = Depends(get_db)
         job_url=payload.job_url,
         location=payload.location,
         salary_range=payload.salary_range,
-        current_stage=payload.current_stage.value,
+        current_stage=target_stage,
         next_step=payload.next_step,
         next_step_deadline=payload.next_step_deadline,
         interview_link=payload.interview_link,
         manual_notes=payload.manual_notes,
+        applied_date=payload.applied_date or utc_now(),
+        tags=payload.tags,
         last_status_change_at=utc_now(),
         last_status_change_source=TriggerSource.INITIAL_INGEST.value,
     )
@@ -166,60 +171,98 @@ def clear_all_applications(db: Session = Depends(get_db)):
 
 @router.post("/seed", response_model=KanbanBoardResponse)
 def seed_demo_applications(db: Session = Depends(get_db)):
-    """Seed realistic initial applications across lifecycle stages for demo and verification."""
+    """Seed realistic initial applications matching code.html for demo and verification."""
     existing_count = db.query(Application).count()
     if existing_count > 0:
         return get_kanban_board(db)
 
     samples = [
         {
-            "company_name": "Stripe",
-            "company_domain": "stripe.com",
-            "role_title": "Senior Backend Engineer",
-            "location": "Remote (US)",
-            "salary_range": "$175,000 - $210,000",
-            "current_stage": LifecycleStage.APPLIED.value,
-            "next_step": "Awaiting response / OA",
-        },
-        {
-            "company_name": "Google",
-            "company_domain": "google.com",
-            "role_title": "Software Engineer III (Core Systems)",
-            "location": "Mountain View, CA / Hybrid",
-            "salary_range": "$180,000 - $230,000",
-            "current_stage": LifecycleStage.SCREENING.value,
-            "next_step": "Complete OA (HackerRank)",
-            "next_step_deadline": datetime(2026, 9, 2, 23, 59, tzinfo=timezone.utc),
-        },
-        {
-            "company_name": "Datadog",
-            "company_domain": "datadoghq.com",
-            "role_title": "Full Stack Engineer (APM)",
-            "location": "New York, NY",
-            "salary_range": "$165,000 - $195,000",
-            "current_stage": LifecycleStage.INTERVIEWING.value,
-            "next_step": "Technical Round 2 with Engineering Manager",
-            "next_step_deadline": datetime(2026, 9, 4, 15, 0, tzinfo=timezone.utc),
-            "interview_link": "https://meet.google.com/abc-defg-hij",
-        },
-        {
-            "company_name": "Figma",
-            "company_domain": "figma.com",
-            "role_title": "Product Engineer",
-            "location": "San Francisco, CA",
-            "salary_range": "$190,000 - $225,000",
-            "current_stage": LifecycleStage.OFFER.value,
-            "next_step": "Review formal offer package & sign",
-            "next_step_deadline": datetime(2026, 9, 10, 18, 0, tzinfo=timezone.utc),
+            "company_name": "Vercel",
+            "company_domain": "vercel.com",
+            "role_title": "Software Engineer, Frontend",
+            "location": "Remote",
+            "salary_range": "$160,000 - $190,000",
+            "current_stage": "offer",
+            "applied_date": datetime(2024, 12, 28, tzinfo=timezone.utc),
+            "next_step": "Offer letter received. Review & sign package",
+            "events": [
+                {"from_stage": None, "to_stage": "applied", "summary": "Confirmation email received", "trigger": "mailbox_auto", "time": datetime(2024, 12, 28, tzinfo=timezone.utc)},
+                {"from_stage": "applied", "to_stage": "screening", "summary": "Recruiter email: moving to screening", "trigger": "mailbox_auto", "time": datetime(2025, 1, 3, tzinfo=timezone.utc)},
+                {"from_stage": "screening", "to_stage": "interview", "summary": "Interview invitation via email", "trigger": "mailbox_auto", "time": datetime(2025, 1, 8, tzinfo=timezone.utc)},
+                {"from_stage": "interview", "to_stage": "offer", "summary": "Offer letter received", "trigger": "mailbox_auto", "time": datetime(2025, 1, 14, tzinfo=timezone.utc)},
+            ],
         },
         {
             "company_name": "Meta",
             "company_domain": "meta.com",
-            "role_title": "Infrastructure Engineer",
+            "role_title": "Product Engineer",
             "location": "Menlo Park, CA",
-            "salary_range": "$170,000 - $215,000",
-            "current_stage": LifecycleStage.REJECTED.value,
-            "next_step": "Position filled internally",
+            "salary_range": "$175,000 - $215,000",
+            "current_stage": "interview",
+            "applied_date": datetime(2025, 1, 3, tzinfo=timezone.utc),
+            "next_step": "System Design Round (2:00 PM - 3:30 PM)",
+            "manual_notes": "Prepare system design for next round",
+            "events": [
+                {"from_stage": None, "to_stage": "applied", "summary": "Application confirmed", "trigger": "mailbox_auto", "time": datetime(2025, 1, 3, tzinfo=timezone.utc)},
+                {"from_stage": "applied", "to_stage": "screening", "summary": "Phone screen scheduled", "trigger": "mailbox_auto", "time": datetime(2025, 1, 6, tzinfo=timezone.utc)},
+                {"from_stage": "screening", "to_stage": "interview", "summary": "Passed phone screen, onsite scheduled", "trigger": "manual_user_override", "time": datetime(2025, 1, 10, tzinfo=timezone.utc)},
+            ],
+        },
+        {
+            "company_name": "Airbnb",
+            "company_domain": "airbnb.com",
+            "role_title": "Frontend Engineer",
+            "location": "San Francisco, CA",
+            "salary_range": "$170,000 - $200,000",
+            "current_stage": "interview",
+            "applied_date": datetime(2025, 1, 5, tzinfo=timezone.utc),
+            "next_step": "Technical Screen (10:00 AM - 11:00 AM)",
+            "events": [
+                {"from_stage": None, "to_stage": "applied", "summary": "Application received", "trigger": "mailbox_auto", "time": datetime(2025, 1, 5, tzinfo=timezone.utc)},
+                {"from_stage": "applied", "to_stage": "screening", "summary": "Technical assessment link received", "trigger": "mailbox_auto", "time": datetime(2025, 1, 7, tzinfo=timezone.utc)},
+                {"from_stage": "screening", "to_stage": "interview", "summary": "Round 2 interview invite", "trigger": "mailbox_auto", "time": datetime(2025, 1, 12, tzinfo=timezone.utc)},
+            ],
+        },
+        {
+            "company_name": "Spotify",
+            "company_domain": "spotify.com",
+            "role_title": "Full Stack Developer",
+            "location": "Remote",
+            "salary_range": "$150,000 - $185,000",
+            "current_stage": "screening",
+            "applied_date": datetime(2025, 1, 8, tzinfo=timezone.utc),
+            "next_step": "Resume review in progress",
+            "events": [
+                {"from_stage": None, "to_stage": "applied", "summary": "Application submitted", "trigger": "mailbox_auto", "time": datetime(2025, 1, 8, tzinfo=timezone.utc)},
+                {"from_stage": "applied", "to_stage": "screening", "summary": "Resume review in progress", "trigger": "mailbox_auto", "time": datetime(2025, 1, 12, tzinfo=timezone.utc)},
+            ],
+        },
+        {
+            "company_name": "Netflix",
+            "company_domain": "netflix.com",
+            "role_title": "Senior Software Engineer",
+            "location": "Los Gatos, CA",
+            "salary_range": "$200,000 - $260,000",
+            "current_stage": "applied",
+            "applied_date": datetime(2025, 1, 10, tzinfo=timezone.utc),
+            "next_step": "Awaiting initial recruiter screening",
+            "events": [
+                {"from_stage": None, "to_stage": "applied", "summary": "Application confirmed", "trigger": "mailbox_auto", "time": datetime(2025, 1, 10, tzinfo=timezone.utc)},
+            ],
+        },
+        {
+            "company_name": "Figma",
+            "company_domain": "figma.com",
+            "role_title": "Design Engineer",
+            "location": "San Francisco, CA",
+            "salary_range": "$165,000 - $195,000",
+            "current_stage": "applied",
+            "applied_date": datetime(2025, 1, 11, tzinfo=timezone.utc),
+            "next_step": "Application received via careers@figma.com",
+            "events": [
+                {"from_stage": None, "to_stage": "applied", "summary": "Application received", "trigger": "mailbox_auto", "time": datetime(2025, 1, 11, tzinfo=timezone.utc)},
+            ],
         },
     ]
 
@@ -232,23 +275,26 @@ def seed_demo_applications(db: Session = Depends(get_db)):
             salary_range=item["salary_range"],
             current_stage=item["current_stage"],
             next_step=item.get("next_step"),
-            next_step_deadline=item.get("next_step_deadline"),
-            interview_link=item.get("interview_link"),
-            last_status_change_at=utc_now(),
-            last_status_change_source=TriggerSource.INITIAL_INGEST.value,
+            manual_notes=item.get("manual_notes"),
+            applied_date=item.get("applied_date", utc_now()),
+            tags="Auto-tracked",
+            last_status_change_at=item["events"][-1]["time"] if item.get("events") else utc_now(),
+            last_status_change_source=item["events"][-1]["trigger"] if item.get("events") else TriggerSource.INITIAL_INGEST.value,
         )
         db.add(app)
         db.flush()
 
-        event = ApplicationStatusEvent(
-            application_id=app.id,
-            from_stage=None,
-            to_stage=app.current_stage,
-            changed_at=utc_now(),
-            trigger_source=TriggerSource.INITIAL_INGEST.value,
-            change_summary=f"Initial application tracked in {app.current_stage} stage",
-        )
-        db.add(event)
+        for evt in item.get("events", []):
+            event = ApplicationStatusEvent(
+                application_id=app.id,
+                from_stage=evt.get("from_stage"),
+                to_stage=evt.get("to_stage"),
+                changed_at=evt.get("time", utc_now()),
+                trigger_source=evt.get("trigger", "mailbox_auto"),
+                change_summary=evt.get("summary", f"Stage changed to {evt.get('to_stage')}"),
+            )
+            db.add(event)
 
     db.commit()
     return get_kanban_board(db)
+

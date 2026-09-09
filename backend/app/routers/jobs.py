@@ -4,11 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import Application, ApplicationStatusEvent, LifecycleStage, TriggerSource, utc_now
+from app.db.models import (
+    Application,
+    ApplicationStatusEvent,
+    LifecycleStage,
+    SavedJob,
+    TriggerSource,
+    utc_now,
+)
 from app.schemas.application import ApplicationRead
 from app.schemas.job import (
     AtsScrapeRequest,
     ImportScrapedJobPayload,
+    SavedJobCreate,
+    SavedJobRead,
     ScrapedJobPosting,
     UrlScrapeRequest,
 )
@@ -158,3 +167,47 @@ def import_scraped_job_to_board(
     db.refresh(app)
 
     return app
+
+
+@router.get("/saved", response_model=List[SavedJobRead])
+def list_saved_jobs(db: Session = Depends(get_db)):
+    """List all saved / bookmarked job postings."""
+    return db.query(SavedJob).order_by(SavedJob.created_at.desc()).all()
+
+
+@router.post("/save", response_model=SavedJobRead)
+def save_job(payload: SavedJobCreate, db: Session = Depends(get_db)):
+    """Save / bookmark a job posting."""
+    existing = db.query(SavedJob).filter(
+        SavedJob.company_name.ilike(payload.company_name),
+        SavedJob.title.ilike(payload.title),
+    ).first()
+    if existing:
+        return existing
+
+    saved = SavedJob(
+        title=payload.title,
+        company_name=payload.company_name,
+        company_logo_color=payload.company_logo_color,
+        location=payload.location,
+        job_type=payload.job_type,
+        salary_range=payload.salary_range,
+        job_url=payload.job_url,
+        tags=payload.tags,
+        posted_date=payload.posted_date,
+    )
+    db.add(saved)
+    db.commit()
+    db.refresh(saved)
+    return saved
+
+
+@router.delete("/saved/{job_id}", status_code=204)
+def delete_saved_job(job_id: str, db: Session = Depends(get_db)):
+    """Remove a saved job posting."""
+    saved = db.query(SavedJob).filter(SavedJob.id == job_id).first()
+    if saved:
+        db.delete(saved)
+        db.commit()
+    return None
+

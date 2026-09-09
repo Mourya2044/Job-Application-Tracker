@@ -1,35 +1,47 @@
 import React from "react"
 import { Droppable } from "@hello-pangea/dnd"
 import { ApplicationCard } from "./ApplicationCard"
+import { Inbox } from "lucide-react"
 
 const STAGE_CONFIG = {
   applied: {
-    dotColor: "bg-sky-400",
+    color: "#60a5fa",
+    bgMuted: "rgba(96, 165, 250, 0.12)",
   },
   screening: {
-    dotColor: "bg-amber-400",
+    color: "#fbbf24",
+    bgMuted: "rgba(251, 191, 36, 0.12)",
+  },
+  interview: {
+    color: "#a78bfa",
+    bgMuted: "rgba(167, 139, 250, 0.12)",
   },
   interviewing: {
-    dotColor: "bg-violet-400",
+    color: "#a78bfa",
+    bgMuted: "rgba(167, 139, 250, 0.12)",
   },
   offer: {
-    dotColor: "bg-emerald-400",
+    color: "#4ade80",
+    bgMuted: "rgba(74, 222, 128, 0.12)",
   },
   accepted: {
-    dotColor: "bg-teal-400",
+    color: "#4ade80",
+    bgMuted: "rgba(74, 222, 128, 0.12)",
   },
   rejected: {
-    dotColor: "bg-rose-400",
+    color: "#fb7185",
+    bgMuted: "rgba(251, 113, 133, 0.12)",
   },
   withdrawn: {
-    dotColor: "bg-zinc-500",
+    color: "#556178",
+    bgMuted: "rgba(85, 97, 120, 0.12)",
   },
 }
 
 export function KanbanColumn({ 
   stage, 
   label, 
-  applications, 
+  applications = [], 
   onOpenDetails, 
   onStageChange, 
   onToggleLock, 
@@ -37,31 +49,37 @@ export function KanbanColumn({
   onAcceptSuggestion,
   onDismissSuggestion
 }) {
-  const config = STAGE_CONFIG[stage] || STAGE_CONFIG.applied
+  const config = STAGE_CONFIG[stage?.toLowerCase()] || STAGE_CONFIG.applied
 
   return (
-    <div className="flex flex-col flex-1 min-w-[270px] max-w-[320px] rounded-xl border border-border/50 bg-card/30 backdrop-blur-sm shadow-none">
+    <div className="flex flex-col w-[290px] shrink-0 bg-[#131926] border border-[#253048] rounded-xl transition-all duration-200">
       {/* Column Header */}
-      <div className="flex items-center justify-between px-3.5 py-3 border-b border-border/40">
-        <div className="flex items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${config.dotColor}`} />
-          <span className="font-medium text-xs text-foreground/90 tracking-tight">
-            {label}
-          </span>
+      <div className="p-4 flex items-center gap-2.5 border-b border-[#253048] shrink-0">
+        <div 
+          className="w-[3px] h-6 rounded-full shrink-0" 
+          style={{ backgroundColor: config.color }} 
+        />
+        <div className="flex-1 font-mono text-xs font-semibold uppercase tracking-wider text-[#8a94a8]">
+          {label}
         </div>
-        <span className="text-[11px] font-medium text-muted-foreground/80 bg-muted/40 px-1.5 py-0.5 rounded">
+        <div 
+          className="font-serif text-xs font-bold w-6 h-6 rounded flex items-center justify-center shrink-0"
+          style={{ backgroundColor: config.bgMuted, color: config.color }}
+        >
           {applications.length}
-        </span>
+        </div>
       </div>
 
-      {/* Column Droppable Area */}
+      {/* Column Droppable Body */}
       <Droppable droppableId={stage}>
         {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
             {...provided.droppableProps}
-            className={`flex-1 p-2.5 min-h-[480px] transition-colors rounded-b-xl ${
-              snapshot.isDraggingOver ? "bg-primary/5 ring-1 ring-primary/20" : ""
+            className={`flex-1 p-3 flex flex-col gap-2.5 min-h-[480px] transition-all rounded-b-xl ${
+              snapshot.isDraggingOver 
+                ? "bg-[rgba(212,168,53,0.04)] ring-1 ring-[#d4a853]/60 shadow-[0_0_24px_rgba(212,168,53,0.06)]" 
+                : ""
             }`}
           >
             {applications.map((app, index) => (
@@ -69,6 +87,7 @@ export function KanbanColumn({
                 key={app.id}
                 application={app}
                 index={index}
+                stageColor={config.color}
                 onOpenDetails={onOpenDetails}
                 onStageChange={onStageChange}
                 onToggleLock={onToggleLock}
@@ -79,9 +98,16 @@ export function KanbanColumn({
             ))}
             {provided.placeholder}
 
+            {snapshot.isDraggingOver && (
+              <div className="border-2 border-dashed border-[#d4a853]/50 rounded-lg p-3 text-center font-mono text-[11px] text-[#d4a853] bg-[rgba(212,168,53,0.06)] mt-auto">
+                Drop here to move
+              </div>
+            )}
+
             {applications.length === 0 && !snapshot.isDraggingOver && (
-              <div className="h-28 flex flex-col items-center justify-center rounded-lg border border-dashed border-border/40 text-muted-foreground/40 text-[11px]">
-                <span>No applications</span>
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-[#556178] text-center">
+                <Inbox className="w-6 h-6 stroke-1 opacity-30 mb-2" />
+                <span className="font-mono text-xs text-[#556178]">No applications</span>
               </div>
             )}
           </div>

@@ -37,3 +37,24 @@ class ImportScrapedJobPayload(BaseModel):
     job: ScrapedJobPosting
     target_stage: LifecycleStage = Field(default=LifecycleStage.APPLIED)
     notes: Optional[str] = None
+
+
+class SavedJobCreate(BaseModel):
+    title: str
+    company_name: str
+    company_logo_color: Optional[str] = None
+    location: Optional[str] = "Remote"
+    job_type: Optional[str] = "Full-time"
+    salary_range: Optional[str] = None
+    job_url: Optional[str] = None
+    tags: Optional[str] = None
+    posted_date: Optional[str] = "Recently"
+
+
+class SavedJobRead(SavedJobCreate):
+    id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+

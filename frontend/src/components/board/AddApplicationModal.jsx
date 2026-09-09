@@ -1,21 +1,5 @@
 import React, { useState } from "react"
-import { Building2, Briefcase, Globe, MapPin, DollarSign, Calendar, Plus } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Building2, Plus, X } from "lucide-react"
 
 export function AddApplicationModal({ isOpen, onClose, onAddApplication }) {
   const [companyName, setCompanyName] = useState("")
@@ -27,6 +11,8 @@ export function AddApplicationModal({ isOpen, onClose, onAddApplication }) {
   const [nextStep, setNextStep] = useState("")
   const [notes, setNotes] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  if (!isOpen) return null
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -60,123 +46,148 @@ export function AddApplicationModal({ isOpen, onClose, onAddApplication }) {
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md bg-card border-border/80 p-6 space-y-4">
-        <DialogHeader className="space-y-1">
-          <DialogTitle className="text-base font-semibold text-foreground">New Application</DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Track a new job opportunity and automatically capture email updates.
-          </DialogDescription>
-        </DialogHeader>
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(4,6,12,0.8)] backdrop-blur-sm animate-fadeIn"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-[#131926] border border-[#253048] rounded-2xl w-full max-w-lg p-6 text-[#e8e4dc] shadow-2xl animate-fadeUp"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between pb-4 border-b border-[#253048] mb-4">
+          <div>
+            <h2 className="text-xl font-bold font-serif text-[#e8e4dc]">New Application</h2>
+            <p className="text-xs text-[#8a94a8] mt-1">
+              Track a new job opportunity and automatically capture email updates.
+            </p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg border border-[#253048] text-[#556178] hover:text-[#e8e4dc] hover:bg-[#1a2235] flex items-center justify-center transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3 pt-1">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-foreground">Company Name *</label>
+              <label className="text-[10px] uppercase font-mono text-[#556178]">Company Name *</label>
               <input
                 type="text"
                 required
                 placeholder="e.g. OpenAI, Stripe"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                className="flex h-8 w-full rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-500"
+                className="flex h-9 w-full rounded-lg border border-[#253048] bg-[#0c1019] px-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853]"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-foreground">Role Title *</label>
+              <label className="text-[10px] uppercase font-mono text-[#556178]">Role Title *</label>
               <input
                 type="text"
                 required
                 placeholder="e.g. Software Engineer"
                 value={roleTitle}
                 onChange={(e) => setRoleTitle(e.target.value)}
-                className="flex h-8 w-full rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-500"
+                className="flex h-9 w-full rounded-lg border border-[#253048] bg-[#0c1019] px-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853]"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Company Domain</label>
+              <label className="text-[10px] uppercase font-mono text-[#556178]">Company Domain</label>
               <input
                 type="text"
                 placeholder="e.g. stripe.com"
                 value={companyDomain}
                 onChange={(e) => setCompanyDomain(e.target.value)}
-                className="flex h-8 w-full rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-500"
+                className="flex h-9 w-full rounded-lg border border-[#253048] bg-[#0c1019] px-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853]"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Initial Stage</label>
-              <Select value={currentStage} onValueChange={setCurrentStage}>
-                <SelectTrigger className="h-8 bg-muted/30 border-border/60 text-xs">
-                  <SelectValue placeholder="Select Stage" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="applied">Applied</SelectItem>
-                  <SelectItem value="screening">Screening / OA</SelectItem>
-                  <SelectItem value="interviewing">Interviewing</SelectItem>
-                  <SelectItem value="offer">Offer</SelectItem>
-                  <SelectItem value="accepted">Accepted</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                  <SelectItem value="withdrawn">Withdrawn</SelectItem>
-                </SelectContent>
-              </Select>
+              <label className="text-[10px] uppercase font-mono text-[#556178]">Initial Stage</label>
+              <select
+                value={currentStage}
+                onChange={(e) => setCurrentStage(e.target.value)}
+                className="flex h-9 w-full rounded-lg border border-[#253048] bg-[#0c1019] px-3 text-xs text-[#e8e4dc] focus:outline-none focus:border-[#d4a853]"
+              >
+                <option value="applied">Applied</option>
+                <option value="screening">Screening</option>
+                <option value="interview">Interview</option>
+                <option value="offer">Offer</option>
+                <option value="rejected">Rejected</option>
+              </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Location</label>
+              <label className="text-[10px] uppercase font-mono text-[#556178]">Location</label>
               <input
                 type="text"
-                placeholder="e.g. Remote, SF"
+                placeholder="e.g. Remote / San Francisco, CA"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                className="flex h-8 w-full rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-500"
+                className="flex h-9 w-full rounded-lg border border-[#253048] bg-[#0c1019] px-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853]"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">Salary (Optional)</label>
+              <label className="text-[10px] uppercase font-mono text-[#556178]">Salary Range</label>
               <input
                 type="text"
-                placeholder="e.g. $160k - $190k"
+                placeholder="e.g. $160,000 - $190,000"
                 value={salaryRange}
                 onChange={(e) => setSalaryRange(e.target.value)}
-                className="flex h-8 w-full rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-500"
+                className="flex h-9 w-full rounded-lg border border-[#253048] bg-[#0c1019] px-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853]"
               />
             </div>
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-medium text-muted-foreground">Next Step / Note</label>
+            <label className="text-[10px] uppercase font-mono text-[#556178]">Next Step / Deadline</label>
             <input
               type="text"
-              placeholder="e.g. Recruiter phone screen next Tuesday"
+              placeholder="e.g. Complete HackerRank OA by Friday"
               value={nextStep}
               onChange={(e) => setNextStep(e.target.value)}
-              className="flex h-8 w-full rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-500"
+              className="flex h-9 w-full rounded-lg border border-[#253048] bg-[#0c1019] px-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853]"
             />
           </div>
 
-          <DialogFooter className="pt-2">
-            <Button type="button" variant="ghost" size="sm" onClick={onClose} className="text-xs">
+          <div className="space-y-1">
+            <label className="text-[10px] uppercase font-mono text-[#556178]">Personal Notes</label>
+            <textarea
+              placeholder="Notes about recruiter conversations, links, or prep..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="flex w-full rounded-lg border border-[#253048] bg-[#0c1019] p-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853] resize-none"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#253048]">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-[#253048] text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235] font-mono text-xs transition-colors"
+            >
               Cancel
-            </Button>
-            <Button
+            </button>
+            <button
               type="submit"
-              size="sm"
               disabled={isSubmitting || !companyName.trim() || !roleTitle.trim()}
-              className="text-xs font-medium bg-foreground text-background hover:bg-zinc-200"
+              className="px-5 py-2 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] font-mono text-xs font-semibold transition-all disabled:opacity-50"
             >
               {isSubmitting ? "Adding..." : "Add Application"}
-            </Button>
-          </DialogFooter>
+            </button>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   )
 }

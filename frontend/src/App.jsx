@@ -2,37 +2,32 @@ import React, { useState, useEffect } from "react"
 import { Toaster, toast } from "sonner"
 import { fetchApi } from "@/config/api"
 import { KanbanBoard } from "@/components/board/KanbanBoard"
-import { TimelineSheet } from "@/components/drawer/TimelineSheet"
+import { ApplicationListView } from "@/components/board/ApplicationListView"
+import { ApplicationDetailModal } from "@/components/board/ApplicationDetailModal"
+import { DashboardView } from "@/components/dashboard/DashboardView"
+import { ApprovalsView } from "@/components/approvals/ApprovalsView"
 import { ConsentDialog } from "@/components/mailbox/ConsentDialog"
 import { SimulateEmailModal } from "@/components/mailbox/SimulateEmailModal"
 import { SyncActivityDrawer } from "@/components/mailbox/SyncActivityDrawer"
 import { AddApplicationModal } from "@/components/board/AddApplicationModal"
-import { PendingDiscoveryBanner } from "@/components/mailbox/PendingDiscoveryBanner"
-import { DiscoveryPromptModal } from "@/components/mailbox/DiscoveryPromptModal"
 import { JobScraperView } from "@/components/jobs/JobScraperView"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { 
-  Building2, 
+  Bell, 
+  TrendingUp, 
   Search, 
   Mail, 
-  RefreshCw, 
-  Sparkles, 
   Kanban, 
   ListFilter, 
-  TrendingUp,
-  CheckCircle2,
-  Activity,
-  Clock,
-  Plus,
-  Trash2,
-  MoreVertical,
+  Plus, 
+  RefreshCw, 
+  Sparkles, 
+  Activity, 
+  Trash2, 
+  MoreVertical, 
   X,
-  Layers,
-  ChevronRight,
-  Globe,
-  Zap
+  LayoutGrid,
+  Lock,
+  LogOut
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -43,6 +38,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+function GoogleIcon({ className = "w-5 h-5" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
+  )
+}
+
 export default function App() {
   const [boardData, setBoardData] = useState({ columns: [], total_applications: 0 })
   const [pendingDiscoveries, setPendingDiscoveries] = useState([])
@@ -52,11 +58,15 @@ export default function App() {
   const [isSimulateOpen, setIsSimulateOpen] = useState(false)
   const [isActivityOpen, setIsActivityOpen] = useState(false)
   const [isAddOpen, setIsAddOpen] = useState(false)
-  const [isDiscoveryPromptOpen, setIsDiscoveryPromptOpen] = useState(false)
   const [consentStatus, setConsentStatus] = useState(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isSyncing, setIsSyncing] = useState(false)
-  const [activeTab, setActiveTab] = useState("board")
+  const [currentView, setCurrentView] = useState("dashboard") // dashboard, approvals, tracking, search
+  const [trackingMode, setTrackingMode] = useState("kanban") // kanban, list
+  
+  // Login Screen State matching code.html
+  const [isLoggedIn, setIsLoggedIn] = useState(true)
+  const [isSigningIn, setIsSigningIn] = useState(false)
 
   useEffect(() => {
     // Check for OAuth redirect return params (?oauth=success or ?oauth=error)
@@ -64,6 +74,7 @@ export default function App() {
     if (urlParams.get("oauth") === "success") {
       toast.success("Google Account successfully connected!")
       loadConsentStatus()
+      setIsLoggedIn(true)
       const cleanUrl = window.location.pathname + (window.location.hash || "")
       window.history.replaceState({}, document.title, cleanUrl)
     } else if (urlParams.get("oauth") === "error") {
@@ -93,7 +104,7 @@ export default function App() {
             return data
           })
         }
-      } catch (e) {
+      } catch {
         // ignore background poll errors
       }
     }, 15000)
@@ -134,7 +145,7 @@ export default function App() {
       const fullApp = await fetchApi(`/api/applications/${app.id}`)
       setSelectedApp(fullApp)
       setIsDetailsOpen(true)
-    } catch (err) {
+    } catch {
       setSelectedApp(app)
       setIsDetailsOpen(true)
     }
@@ -154,24 +165,24 @@ export default function App() {
     }
   }
 
-  const handleAcceptDiscovery = async (logId) => {
+  const handleAcceptDiscovery = async (id) => {
     try {
-      const newApp = await fetchApi(`/api/mailbox/accept-discovery/${logId}`, { method: "POST" })
+      const newApp = await fetchApi(`/api/mailbox/accept-discovery/${id}`, { method: "POST" })
       await loadBoard()
       await loadPendingDiscoveries()
       await loadConsentStatus()
-      toast.success(`Tracking ${newApp.company_name}`)
+      toast.success(`Tracking started for ${newApp.company_name} — ${newApp.role_title}`)
     } catch (err) {
-      toast.error(err.message || "Could not add discovered application")
+      toast.error(err.message || "Could not track discovered application")
     }
   }
 
-  const handleDismissDiscovery = async (logId) => {
+  const handleDismissDiscovery = async (id) => {
     try {
-      await fetchApi(`/api/mailbox/dismiss-discovery/${logId}`, { method: "POST" })
+      await fetchApi(`/api/mailbox/dismiss-discovery/${id}`, { method: "POST" })
       await loadPendingDiscoveries()
       await loadConsentStatus()
-      toast.info("Discovery dismissed")
+      toast.info("Application discovery dismissed")
     } catch (err) {
       toast.error(err.message || "Failed to dismiss")
     }
@@ -189,16 +200,7 @@ export default function App() {
     }
   }
 
-  const handleStageChange = async (appId, newStage, userNote = "", nextStep = null, interviewLink = null) => {
-    let prevStage = "applied"
-    for (const col of boardData.columns) {
-      const found = col.applications.find(a => a.id === appId)
-      if (found) {
-        prevStage = found.current_stage
-        break
-      }
-    }
-
+  const handleStageChange = async (appId, newStage, userNote = "", nextStep = null) => {
     try {
       const updatedApp = await fetchApi(`/api/applications/${appId}/stage`, {
         method: "PATCH",
@@ -207,7 +209,6 @@ export default function App() {
           to_stage: newStage,
           user_note: userNote || undefined,
           next_step: nextStep || undefined,
-          interview_link: interviewLink || undefined,
         }),
       })
 
@@ -217,18 +218,8 @@ export default function App() {
         setSelectedApp(updatedApp)
       }
 
-      toast.success(
-        `Moved to ${newStage.toUpperCase()}`,
-        {
-          description: `${updatedApp.company_name} — ${updatedApp.role_title}`,
-          action: {
-            label: "Undo",
-            onClick: () => handleStageChange(appId, prevStage, "User clicked Undo"),
-          },
-        }
-      )
+      toast.success(`${updatedApp.company_name} moved to ${newStage.toUpperCase()}`)
     } catch (err) {
-      console.error(err)
       toast.error(err.message || "Failed to change status")
     }
   }
@@ -279,44 +270,17 @@ export default function App() {
     }
   }
 
-  const handleDelete = async (appId) => {
+  const handleDeleteApplication = async (appId) => {
     try {
       await fetchApi(`/api/applications/${appId}`, { method: "DELETE" })
       await loadBoard()
-      setIsDetailsOpen(false)
-      toast.success("Application removed")
+      if (selectedApp && selectedApp.id === appId) {
+        setIsDetailsOpen(false)
+        setSelectedApp(null)
+      }
+      toast.info("Application deleted")
     } catch (err) {
       toast.error(err.message || "Failed to delete application")
-    }
-  }
-
-  const handleGrantConsent = async () => {
-    try {
-      const data = await fetchApi("/api/mailbox/connect-google", { method: "POST" })
-      if (data.auth_url) {
-        // Web / serverless OAuth redirect
-        window.location.href = data.auth_url
-        return
-      }
-      setConsentStatus(data)
-      await loadConsentStatus()
-      toast.success(
-        data.user_email ? `Connected as ${data.user_email}` : "Google Account Connected"
-      )
-    } catch (err) {
-      toast.error(err.message || "Google authentication cancelled or failed.")
-    }
-  }
-
-
-  const handleDisconnect = async () => {
-    try {
-      const status = await fetchApi("/api/mailbox/disconnect", { method: "POST" })
-      setConsentStatus(status)
-      await loadConsentStatus()
-      toast.info("Google Account disconnected")
-    } catch (err) {
-      toast.error(err.message || "Failed to disconnect")
     }
   }
 
@@ -325,19 +289,11 @@ export default function App() {
     try {
       const result = await fetchApi("/api/mailbox/sync", { method: "POST" })
       await loadBoard()
+      await loadPendingDiscoveries()
       await loadConsentStatus()
-      const discData = await fetchApi("/api/mailbox/pending-discoveries")
-      setPendingDiscoveries(discData || [])
-
-      if (discData && discData.length > 0) {
-        setIsDiscoveryPromptOpen(true)
-      }
-
-      if (result.status === "success") {
-        toast.success(`Mailbox synced (${result.updates_count} updates found)`)
-      } else {
-        toast.info(result.message || "Sync completed")
-      }
+      toast.success("Inbox status sync complete", {
+        description: `${result.updates_detected || 0} update(s) detected across ${result.emails_processed || 0} email(s).`,
+      })
     } catch (err) {
       toast.error(err.message || "Mailbox sync failed")
     } finally {
@@ -345,446 +301,489 @@ export default function App() {
     }
   }
 
-  const handleSimulateEmail = async (payload) => {
-    try {
-      const result = await fetchApi("/api/mailbox/simulate-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      await loadBoard()
-      await loadConsentStatus()
-      const discData = await fetchApi("/api/mailbox/pending-discoveries")
-      setPendingDiscoveries(discData || [])
-
-      if (result.matched && result.matched_application) {
-        if (result.matched_application.is_pending_confirmation) {
-          setIsDiscoveryPromptOpen(true)
-          toast.info(
-            `New application found: ${result.matched_application.company_name}`,
-            {
-              description: "Review pending discoveries to watch.",
-            }
-          )
-        } else {
-          toast.success(
-            `Status Captured: ${result.matched_application.company_name}`,
-            {
-              description: `Moved from ${result.matched_application.old_stage} -> ${result.matched_application.new_stage}`,
-              action: {
-                label: "Undo",
-                onClick: () => handleStageChange(
-                  result.matched_application.application_id, 
-                  result.matched_application.old_stage, 
-                  "Reverted simulated email capture"
-                ),
-              },
-            }
-          )
-        }
-      } else {
-        toast.info(result.message || "Email processed (no active match).")
-      }
-    } catch (err) {
-      toast.error(err.message || "Simulation failed")
-    }
+  const handleLoginClick = () => {
+    setIsSigningIn(true)
+    setTimeout(() => {
+      setIsLoggedIn(true)
+      setIsSigningIn(false)
+      toast.success("Signed in to Hired.")
+    }, 800)
   }
 
-  // Filter columns by search query
-  const filteredColumns = boardData.columns.map(col => ({
-    ...col,
-    applications: col.applications.filter(app => 
-      app.company_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      app.role_title.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  }))
+  // Calculate pipeline metrics
+  const allApplications = (boardData.columns || []).flatMap(c => c.applications || [])
+  const pipelineCounts = { applied: 0, screening: 0, interview: 0, offer: 0 }
+  allApplications.forEach(a => {
+    const st = a.current_stage?.toLowerCase()
+    if (st === "applied") pipelineCounts.applied++
+    else if (st === "screening") pipelineCounts.screening++
+    else if (st === "interview" || st === "interviewing") pipelineCounts.interview++
+    else if (st === "offer" || st === "accepted") pipelineCounts.offer++
+  })
 
-  const activePipelineCount = (boardData.columns.find(c => c.stage === 'interviewing')?.applications.length || 0) +
-    (boardData.columns.find(c => c.stage === 'screening')?.applications.length || 0)
-  const offersCount = (boardData.columns.find(c => c.stage === 'offer')?.applications.length || 0) +
-    (boardData.columns.find(c => c.stage === 'accepted')?.applications.length || 0)
-
-  const isConnected = consentStatus?.consent_given && consentStatus?.is_sync_enabled
+  // User details
+  const isConnected = !!(consentStatus?.consent_given && consentStatus?.is_sync_enabled)
+  const userDisplayName = consentStatus?.user_email
+    ? consentStatus.user_email.split("@")[0].replace(".", " ")
+    : "Jordan Doe"
+  const userEmailDisplay = consentStatus?.user_email || "jordan@gmail.com"
+  const userInitials = userDisplayName
+    .split(" ")
+    .map(n => n.charAt(0).toUpperCase())
+    .slice(0, 2)
+    .join("") || "JD"
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col antialiased">
-      <Toaster position="top-right" theme="dark" richColors closeButton />
+    <div className="min-h-screen bg-[#0c1019] text-[#e8e4dc] font-serif flex">
+      <Toaster position="bottom-right" richColors theme="dark" />
 
-      {/* Modern Minimal Navigation Bar */}
-      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/80 backdrop-blur-md px-6 py-2.5 flex items-center justify-between gap-4">
-        {/* Brand / Logo */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background font-bold text-xs">
-            <Layers className="h-4 w-4" />
-          </div>
-          <span className="font-semibold text-sm tracking-tight text-foreground">
-            Applications
-          </span>
-        </div>
+      {/* ============================================
+          LOGIN SCREEN OVERLAY (matching code.html)
+          ============================================ */}
+      {!isLoggedIn && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#080b12] p-4 transition-all duration-500">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_25%_30%,rgba(212,168,53,0.06)_0%,transparent_55%),radial-gradient(ellipse_at_75%_70%,rgba(96,165,250,0.04)_0%,transparent_50%)] pointer-events-none" />
+          <div className="relative bg-[#131926] border border-[#253048] rounded-3xl p-10 sm:p-14 max-w-md w-full text-center shadow-2xl animate-fadeUp">
+            <div className="font-serif text-5xl font-bold text-[#d4a853] mb-2 tracking-tight">
+              Hired<span className="opacity-40">.</span>
+            </div>
+            <p className="text-[#8a94a8] text-sm leading-relaxed mb-8">
+              Track every application. Never miss an update.<br />Your job search, intelligently organized.
+            </p>
 
-        {/* Center Search Input */}
-        <div className="flex items-center flex-1 max-w-sm mx-auto">
-          <div className="relative w-full">
-            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/60" />
-            <input
-              type="text"
-              placeholder="Search company or role..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex h-7 w-full rounded-md border border-border/60 bg-muted/30 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-zinc-500 transition-colors"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
+            <div className="flex flex-col gap-3 mb-9 text-left font-serif text-xs text-[#8a94a8]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-[#d4a853] shrink-0" />
+                <span>Automatic email detection for new applications</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-[#d4a853] shrink-0" />
+                <span>Real-time status tracking & timeline</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-[#d4a853] shrink-0" />
+                <span>Built-in job search with smart filters</span>
+              </div>
+            </div>
 
-        {/* Right Actions */}
-        <div className="flex items-center gap-2">
-          {/* Background Auto-Sync Live Indicator */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsConsentOpen(true)}
-            className="h-7 text-xs gap-1.5 border-border/60 text-muted-foreground hover:text-foreground"
-            title="Configure Background Auto-Sync"
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                consentStatus?.background_sync?.is_running ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"
-              }`}
-            />
-            <span className="hidden md:inline text-[11px]">
-              {consentStatus?.background_sync?.is_running
-                ? `Auto-Sync (${consentStatus?.background_sync?.interval_seconds}s)`
-                : "Auto-Sync Paused"}
-            </span>
-          </Button>
-
-          {/* Mailbox Status Pill */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsConsentOpen(true)}
-            className="h-7 text-xs gap-1.5 border-border/60 text-muted-foreground hover:text-foreground"
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-400" : "bg-zinc-500"}`} />
-            <span className="hidden sm:inline">
-              {isConnected ? (consentStatus?.user_email ? consentStatus.user_email.split('@')[0] : "Connected") : "Connect Gmail"}
-            </span>
-          </Button>
-
-          {/* Sync Button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncMailbox}
-            disabled={isSyncing}
-            className="h-7 text-xs gap-1.5 border-border/60 text-muted-foreground hover:text-foreground"
-            title="Sync Mailbox"
-          >
-            <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin text-primary" : ""}`} />
-            <span className="hidden sm:inline">{isSyncing ? "Syncing..." : "Sync"}</span>
-          </Button>
-
-          {/* Primary Action: Add Application */}
-          <Button
-            size="sm"
-            onClick={() => setIsAddOpen(true)}
-            className="h-7 gap-1 text-xs font-medium bg-foreground text-background hover:bg-zinc-200 shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New</span>
-          </Button>
-
-          {/* More Options Dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="iconSm" className="h-7 w-7 text-muted-foreground hover:text-foreground">
-                <MoreVertical className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52 text-xs">
-              <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase font-semibold">Utilities</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => setIsSimulateOpen(true)}>
-                <Sparkles className="w-3.5 h-3.5 mr-2 text-violet-400" />
-                Simulate Email Event
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setIsActivityOpen(true)}>
-                <Activity className="w-3.5 h-3.5 mr-2 text-primary" />
-                Sync Activity Stream
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setIsConsentOpen(true)}>
-                <Mail className="w-3.5 h-3.5 mr-2 text-emerald-400" />
-                Mailbox Settings
-              </DropdownMenuItem>
-              {boardData.total_applications > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleClearAllData} className="text-destructive focus:text-destructive">
-                    <Trash2 className="w-3.5 h-3.5 mr-2" />
-                    Clear All Applications
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </header>
-
-      {/* Minimal Subheader / Status & Metric Bar */}
-      <div className="border-b border-border/40 bg-card/20 px-6 py-2 flex flex-wrap items-center justify-between text-xs gap-3">
-        {/* Left: View Switcher & Quick Metrics */}
-        <div className="flex items-center gap-4">
-          {/* Board / Table / Jobs Tabs */}
-          <div className="flex items-center bg-muted/40 p-0.5 rounded-lg border border-border/40">
             <button
-              onClick={() => setActiveTab("board")}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                activeTab === "board"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+              onClick={handleLoginClick}
+              disabled={isSigningIn}
+              className="w-full py-3.5 px-6 rounded-xl bg-white hover:bg-zinc-100 text-[#1a1a1a] font-mono text-xs font-semibold flex items-center justify-center gap-3 transition-all shadow-lg hover:-translate-y-0.5 disabled:opacity-60"
             >
-              <Kanban className="w-3 h-3" />
-              <span>Board</span>
+              <GoogleIcon className="w-5 h-5" />
+              <span>{isSigningIn ? "Signing in..." : "Sign in with Google"}</span>
             </button>
-            <button
-              onClick={() => setActiveTab("table")}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                activeTab === "table"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <ListFilter className="w-3 h-3" />
-              <span>List</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("jobs")}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                activeTab === "jobs"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Globe className="w-3 h-3 text-sky-400" />
-              <span>Discover Jobs</span>
-              <span className="text-[9px] bg-primary/20 text-primary px-1 rounded font-bold">New</span>
-            </button>
-          </div>
 
-          {/* Minimal Stat Indicators */}
-          <div className="hidden sm:flex items-center gap-3 text-xs text-muted-foreground border-l border-border/40 pl-4">
-            <span className="flex items-center gap-1.5">
-              <span className="font-medium text-foreground">{boardData.total_applications}</span> Total
-            </span>
-            <span className="text-muted-foreground/30">•</span>
-            <span className="flex items-center gap-1.5">
-              <span className="font-medium text-sky-400">{activePipelineCount}</span> In Progress
-            </span>
-            <span className="text-muted-foreground/30">•</span>
-            <span className="flex items-center gap-1.5">
-              <span className="font-medium text-emerald-400">{offersCount}</span> Offers
-            </span>
+            <p className="mt-8 text-[11px] text-[#556178]">
+              By signing in, you agree to let Hired. scan your inbox for job-related emails.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================
+          SIDEBAR NAVIGATION (matching code.html)
+          ============================================ */}
+      <aside className="fixed left-0 top-0 bottom-0 w-[260px] bg-[#131926] border-r border-[#253048] flex flex-col p-6 pb-5 z-40 hidden md:flex">
+        {/* Brand */}
+        <div className="px-3 mb-1">
+          <div className="font-serif text-2xl font-bold text-[#d4a853]">
+            Hired<span className="opacity-40">.</span>
+          </div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] mt-0.5">
+            Application Tracker
           </div>
         </div>
 
-        {/* Right: Sync Activity & Discoveries */}
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-          {pendingDiscoveries.length > 0 && (
-            <button
-              onClick={() => setIsDiscoveryPromptOpen(true)}
-              className="flex items-center gap-1.5 text-violet-400 hover:text-violet-300 font-medium transition-colors"
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>{pendingDiscoveries.length} discovered</span>
-            </button>
-          )}
-
-          {consentStatus?.last_synced_at && (
-            <span className="hidden md:inline text-muted-foreground/60">
-              Synced {new Date(consentStatus.last_synced_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          )}
+        {/* Navigation Groups */}
+        <nav className="mt-8 space-y-1">
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] px-3 mb-2">
+            Main
+          </div>
 
           <button
-            onClick={() => setIsActivityOpen(true)}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setCurrentView("dashboard")}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+              currentView === "dashboard"
+                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
+                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
+            }`}
           >
-            Activity
+            <LayoutGrid className="w-4 h-4 shrink-0" />
+            <span>Dashboard</span>
           </button>
+
+          <button
+            onClick={() => setCurrentView("approvals")}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+              currentView === "approvals"
+                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
+                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Bell className="w-4 h-4 shrink-0" />
+              <span>Approvals</span>
+            </div>
+            {pendingDiscoveries.length > 0 && (
+              <span className="w-5 h-5 rounded-full bg-[#d4a853] text-[#080b12] font-mono text-[10px] font-bold flex items-center justify-center pulse-badge">
+                {pendingDiscoveries.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setCurrentView("tracking")}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+              currentView === "tracking"
+                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
+                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
+            }`}
+          >
+            <TrendingUp className="w-4 h-4 shrink-0" />
+            <span>Tracking</span>
+          </button>
+
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] px-3 pt-6 mb-2">
+            Discover
+          </div>
+
+          <button
+            onClick={() => setCurrentView("search")}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+              currentView === "search"
+                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
+                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
+            }`}
+          >
+            <Search className="w-4 h-4 shrink-0" />
+            <span>Job Search</span>
+          </button>
+        </nav>
+
+        {/* Sidebar Spacer */}
+        <div className="flex-1" />
+
+        {/* User Card at bottom */}
+        <div 
+          onClick={() => setIsConsentOpen(true)}
+          className="pt-4 border-t border-[#253048] flex items-center gap-3 cursor-pointer hover:bg-[#1a2235] -mx-2 px-2 py-2 rounded-xl transition-colors group"
+          title="Click to manage Gmail connection"
+        >
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#d4a853] to-[#8b6914] flex items-center justify-center font-mono font-bold text-xs text-[#080b12] shrink-0">
+            {userInitials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-[#e8e4dc] truncate capitalize">
+              {userDisplayName}
+            </div>
+            <div className="font-mono text-[10px] text-[#556178] truncate flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-[#4ade80]" : "bg-[#556178]"}`} />
+              <span className="truncate">{userEmailDisplay}</span>
+            </div>
+          </div>
         </div>
+      </aside>
+
+      {/* ============================================
+          MAIN CONTENT AREA
+          ============================================ */}
+      <div className="flex-1 md:ml-[260px] min-h-screen flex flex-col">
+        {/* Top Header Bar */}
+        <header className="sticky top-0 z-30 bg-[#0c1019]/90 backdrop-blur-md border-b border-[#253048] px-6 py-3.5 flex items-center justify-between gap-4">
+          {/* Mobile brand & Quick Search */}
+          <div className="flex items-center gap-3 flex-1 max-w-md">
+            <div className="font-serif font-bold text-[#d4a853] md:hidden text-lg">
+              Hired.
+            </div>
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#556178]" />
+              <input
+                type="text"
+                placeholder="Search company or role..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-8 pl-9 pr-8 bg-[#131926] border border-[#253048] rounded-lg text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853] font-serif"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#556178] hover:text-[#e8e4dc]"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Right Header Actions */}
+          <div className="flex items-center gap-2.5">
+            {/* Auto-Sync status */}
+            <button
+              onClick={() => setIsConsentOpen(true)}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-colors"
+              title="Mailbox Sync Status"
+            >
+              <span className={`w-2 h-2 rounded-full ${consentStatus?.background_sync?.is_running ? "bg-[#4ade80] animate-pulse" : "bg-[#556178]"}`} />
+              <span className="text-[11px]">
+                {consentStatus?.background_sync?.is_running ? "Auto-Sync Live" : "Auto-Sync Off"}
+              </span>
+            </button>
+
+            {/* Sync Now */}
+            <button
+              onClick={handleSyncMailbox}
+              disabled={isSyncing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-colors disabled:opacity-50"
+              title="Sync Mailbox"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-[#d4a853]" : ""}`} />
+              <span className="hidden md:inline">{isSyncing ? "Syncing..." : "Sync"}</span>
+            </button>
+
+            {/* Add Application Button */}
+            <button
+              onClick={() => setIsAddOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] font-mono text-xs font-semibold transition-all shadow-sm hover:-translate-y-0.5"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>New</span>
+            </button>
+
+            {/* More Options Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="h-8 w-8 rounded-lg border border-[#253048] text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#131926] flex items-center justify-center transition-colors">
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 text-xs bg-[#131926] border-[#253048] text-[#e8e4dc]">
+                <DropdownMenuLabel className="text-[10px] text-[#556178] uppercase font-mono">Tools & Utilities</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => setIsSimulateOpen(true)} className="hover:bg-[#1a2235]">
+                  <Sparkles className="w-3.5 h-3.5 mr-2 text-[#a78bfa]" />
+                  Simulate Email Event
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsActivityOpen(true)} className="hover:bg-[#1a2235]">
+                  <Activity className="w-3.5 h-3.5 mr-2 text-[#60a5fa]" />
+                  Sync Activity Stream
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsConsentOpen(true)} className="hover:bg-[#1a2235]">
+                  <Mail className="w-3.5 h-3.5 mr-2 text-[#4ade80]" />
+                  Mailbox Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-[#253048]" />
+                <DropdownMenuItem onClick={() => setIsLoggedIn(false)} className="hover:bg-[#1a2235]">
+                  <LogOut className="w-3.5 h-3.5 mr-2 text-[#8a94a8]" />
+                  Switch Account / Sign In
+                </DropdownMenuItem>
+                {allApplications.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator className="bg-[#253048]" />
+                    <DropdownMenuItem onClick={handleClearAllData} className="text-[#fb7185] hover:bg-[rgba(251,113,133,0.1)] focus:text-[#fb7185]">
+                      <Trash2 className="w-3.5 h-3.5 mr-2" />
+                      Clear All Applications
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+
+        {/* View Router Body */}
+        <main className="flex-1 p-6 md:p-10 max-w-7xl w-full mx-auto">
+          {/* 1. DASHBOARD VIEW */}
+          {currentView === "dashboard" && (
+            <DashboardView
+              boardData={boardData}
+              pendingDiscoveries={pendingDiscoveries}
+              consentStatus={consentStatus}
+              onSwitchView={setCurrentView}
+              onOpenDetails={handleOpenDetails}
+            />
+          )}
+
+          {/* 2. APPROVALS VIEW */}
+          {currentView === "approvals" && (
+            <ApprovalsView
+              discoveries={pendingDiscoveries}
+              onAccept={handleAcceptDiscovery}
+              onDismiss={handleDismissDiscovery}
+              onSyncMailbox={handleSyncMailbox}
+              isSyncing={isSyncing}
+            />
+          )}
+
+          {/* 3. TRACKING VIEW */}
+          {currentView === "tracking" && (
+            <div className="space-y-6 animate-fadeUp">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-3xl sm:text-4xl font-bold font-serif text-[#e8e4dc]">
+                    Application Tracking
+                  </h1>
+                  <p className="text-[#8a94a8] text-sm mt-1.5">
+                    Real-time status updates. Click cards to view details, or drag between columns in board view.
+                  </p>
+                </div>
+
+                {/* View Toggle (Board vs List) matching code.html */}
+                <div className="inline-flex bg-[#131926] border border-[#253048] rounded-lg overflow-hidden self-start sm:self-auto">
+                  <button
+                    onClick={() => setTrackingMode("kanban")}
+                    className={`px-4 py-2 font-mono text-xs flex items-center gap-2 transition-colors ${
+                      trackingMode === "kanban"
+                        ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
+                        : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
+                    }`}
+                  >
+                    <Kanban className="w-3.5 h-3.5" />
+                    <span>Board</span>
+                  </button>
+                  <button
+                    onClick={() => setTrackingMode("list")}
+                    className={`px-4 py-2 font-mono text-xs flex items-center gap-2 border-l border-[#253048] transition-colors ${
+                      trackingMode === "list"
+                        ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
+                        : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
+                    }`}
+                  >
+                    <ListFilter className="w-3.5 h-3.5" />
+                    <span>List</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Shared Pipeline Bar matching code.html */}
+              <div className="flex items-center gap-0 p-6 bg-[#131926] border border-[#253048] rounded-xl overflow-x-auto shadow-sm">
+                <div 
+                  onClick={() => { setTrackingMode("list"); }}
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                >
+                  <span className="font-serif text-3xl font-bold block text-[#60a5fa] leading-none">
+                    {pipelineCounts.applied}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                    Applied
+                  </span>
+                </div>
+
+                <div className="pipeline-connector hidden sm:block" />
+
+                <div 
+                  onClick={() => { setTrackingMode("list"); }}
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                >
+                  <span className="font-serif text-3xl font-bold block text-[#fbbf24] leading-none">
+                    {pipelineCounts.screening}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                    Screening
+                  </span>
+                </div>
+
+                <div className="pipeline-connector hidden sm:block" />
+
+                <div 
+                  onClick={() => { setTrackingMode("list"); }}
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                >
+                  <span className="font-serif text-3xl font-bold block text-[#a78bfa] leading-none">
+                    {pipelineCounts.interview}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                    Interview
+                  </span>
+                </div>
+
+                <div className="pipeline-connector hidden sm:block" />
+
+                <div 
+                  onClick={() => { setTrackingMode("list"); }}
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                >
+                  <span className="font-serif text-3xl font-bold block text-[#4ade80] leading-none">
+                    {pipelineCounts.offer}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                    Offer
+                  </span>
+                </div>
+              </div>
+
+              {/* Board Mode */}
+              {trackingMode === "kanban" && (
+                <KanbanBoard
+                  columns={boardData.columns || []}
+                  onStageChange={handleStageChange}
+                  onOpenDetails={handleOpenDetails}
+                  onToggleLock={handleToggleLock}
+                  onDelete={handleDeleteApplication}
+                />
+              )}
+
+              {/* List Mode */}
+              {trackingMode === "list" && (
+                <ApplicationListView
+                  applications={allApplications}
+                  onOpenDetails={handleOpenDetails}
+                  searchQuery={searchQuery}
+                />
+              )}
+            </div>
+          )}
+
+          {/* 4. JOB SEARCH VIEW */}
+          {currentView === "search" && (
+            <JobScraperView onImportJob={loadBoard} />
+          )}
+        </main>
       </div>
 
-      {/* Main Workspace Area */}
-      <main className="flex-1 p-6 space-y-4">
-        {/* Prompt Banner for Untracked Discovered Applications */}
-        <PendingDiscoveryBanner
-          discoveries={pendingDiscoveries}
-          onAccept={handleAcceptDiscovery}
-          onDismiss={handleDismissDiscovery}
-        />
+      {/* ============================================
+          MODALS & DRAWERS
+          ============================================ */}
+      <ApplicationDetailModal
+        application={selectedApp}
+        isOpen={isDetailsOpen}
+        onClose={() => {
+          setIsDetailsOpen(false)
+          setSelectedApp(null)
+        }}
+        onStageChange={handleStageChange}
+        onToggleLock={handleToggleLock}
+        onRevertStage={handleRevertStage}
+        onUpdateDetails={handleUpdateDetails}
+        onDelete={handleDeleteApplication}
+      />
 
-        {/* Empty State when 0 applications */}
-        {boardData.total_applications === 0 && pendingDiscoveries.length === 0 && activeTab !== "jobs" ? (
-          <div className="rounded-xl border border-dashed border-border/60 bg-card/20 p-12 text-center flex flex-col items-center justify-center space-y-3 max-w-md mx-auto mt-12">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/40 text-muted-foreground">
-              <Building2 className="h-5 w-5" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-sm font-medium text-foreground">No applications tracked yet</h3>
-              <p className="text-xs text-muted-foreground">
-                Add an application manually or connect Gmail to capture status updates automatically.
-              </p>
-            </div>
-            <Button 
-              size="sm"
-              onClick={() => setIsAddOpen(true)}
-              className="gap-1.5 text-xs font-medium mt-2 bg-foreground text-background hover:bg-zinc-200"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Application
-            </Button>
-          </div>
-        ) : (
-          <div>
-            {/* Job Discovery & Scraper View */}
-            {activeTab === "jobs" && (
-              <JobScraperView
-                onImportJob={async () => {
-                  await loadBoard()
-                  await loadPendingDiscoveries()
-                }}
-                trackedUrls={boardData.columns.flatMap(c => c.applications).map(a => a.job_url).filter(Boolean)}
-              />
-            )}
-
-            {/* Kanban Board View */}
-            {activeTab === "board" && (
-              <KanbanBoard
-                columns={filteredColumns}
-                onStageChange={handleStageChange}
-                onOpenDetails={handleOpenDetails}
-                onToggleLock={handleToggleLock}
-                onDelete={handleDelete}
-                onAcceptSuggestion={(appId, stage) => handleStageChange(appId, stage, "Accepted email status suggestion")}
-                onDismissSuggestion={(appId) => handleUpdateDetails(appId, { pending_suggestion: null })}
-              />
-            )}
-
-            {/* List / Table View */}
-            {activeTab === "table" && (
-              <div className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-muted/20 text-muted-foreground font-medium text-[11px] border-b border-border/40">
-                    <tr>
-                      <th className="py-2.5 px-4">Company</th>
-                      <th className="py-2.5 px-4">Role</th>
-                      <th className="py-2.5 px-4">Stage</th>
-                      <th className="py-2.5 px-4">Next Step</th>
-                      <th className="py-2.5 px-4">Source</th>
-                      <th className="py-2.5 px-4">Updated</th>
-                      <th className="py-2.5 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/30">
-                    {boardData.columns.flatMap(c => c.applications).map(app => (
-                      <tr 
-                        key={app.id} 
-                        className="hover:bg-muted/30 cursor-pointer transition-colors"
-                        onClick={() => handleOpenDetails(app)}
-                      >
-                        <td className="py-3 px-4 font-medium text-foreground">{app.company_name}</td>
-                        <td className="py-3 px-4 text-muted-foreground">{app.role_title}</td>
-                        <td className="py-3 px-4">
-                          <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-medium uppercase border border-border/60 bg-muted/30 text-foreground/80">
-                            {app.current_stage}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-foreground/80">{app.next_step || "-"}</td>
-                        <td className="py-3 px-4 text-muted-foreground/80 text-[11px]">{app.last_status_change_source}</td>
-                        <td className="py-3 px-4 text-muted-foreground text-[11px]">
-                          {new Date(app.last_status_change_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                        </td>
-                        <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-6 text-[11px] text-muted-foreground hover:text-foreground"
-                            onClick={() => handleOpenDetails(app)}
-                          >
-                            Details
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-
-      {/* Add Application Modal */}
       <AddApplicationModal
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
         onAddApplication={handleAddApplication}
       />
 
-      {/* Slide-over Application Timeline Drawer */}
-      <TimelineSheet
-        application={selectedApp}
-        isOpen={isDetailsOpen}
-        onClose={() => setIsDetailsOpen(false)}
-        onStageChange={handleStageChange}
-        onToggleLock={handleToggleLock}
-        onRevertStage={handleRevertStage}
-        onUpdateDetails={handleUpdateDetails}
-      />
-
-      {/* Mailbox Consent Dialog */}
       <ConsentDialog
         isOpen={isConsentOpen}
         onClose={() => setIsConsentOpen(false)}
         consentStatus={consentStatus}
-        onGrantConsent={handleGrantConsent}
-        onDisconnect={handleDisconnect}
-        onSyncMailbox={handleSyncMailbox}
-        isSyncing={isSyncing}
-        onReloadStatus={loadConsentStatus}
+        onConsentUpdated={loadConsentStatus}
       />
 
-      {/* Discovery Prompt Modal */}
-      <DiscoveryPromptModal
-        isOpen={isDiscoveryPromptOpen}
-        onClose={() => setIsDiscoveryPromptOpen(false)}
-        discoveries={pendingDiscoveries}
-        onAccept={handleAcceptDiscovery}
-        onDismiss={handleDismissDiscovery}
-      />
-
-      {/* Simulation Modal */}
       <SimulateEmailModal
         isOpen={isSimulateOpen}
         onClose={() => setIsSimulateOpen(false)}
-        onSimulate={handleSimulateEmail}
-        trackedApplications={boardData.columns.flatMap(c => c.applications)}
+        onSimulated={() => {
+          loadBoard()
+          loadPendingDiscoveries()
+        }}
       />
 
-      {/* Live Mailbox Sync Activity Drawer */}
       <SyncActivityDrawer
         isOpen={isActivityOpen}
         onClose={() => setIsActivityOpen(false)}
-        onSyncMailbox={handleSyncMailbox}
-        isSyncing={isSyncing}
       />
     </div>
   )

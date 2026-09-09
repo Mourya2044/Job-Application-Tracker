@@ -34,6 +34,8 @@ class ApplicationBase(BaseModel):
     next_step_deadline: Optional[datetime] = None
     interview_link: Optional[str] = None
     manual_notes: Optional[str] = None
+    applied_date: Optional[datetime] = None
+    tags: Optional[str] = None
 
 
 class ApplicationCreate(ApplicationBase):
@@ -52,6 +54,8 @@ class ApplicationUpdate(BaseModel):
     interview_link: Optional[str] = None
     manual_notes: Optional[str] = None
     stage_locked: Optional[bool] = None
+    applied_date: Optional[datetime] = None
+    tags: Optional[str] = None
 
 
 class ApplicationStageUpdate(BaseModel):

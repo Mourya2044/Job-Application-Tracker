@@ -4,55 +4,92 @@
 
 @layer base {
   :root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
+    --bg-deep: #080b12;
+    --bg: #0c1019;
+    --surface: #131926;
+    --surface-raised: #1a2235;
+    --surface-hover: #212d45;
+    --border: #253048;
+    --accent: #d4a853;
+    --accent-hover: #e6c06a;
+    --accent-muted: rgba(212, 168, 53, 0.1);
+    --text: #e8e4dc;
+    --text-secondary: #8a94a8;
+    --text-muted: #556178;
+    --success: #4ade80;
+    --success-muted: rgba(74, 222, 128, 0.1);
+    --warning: #fbbf24;
+    --warning-muted: rgba(251, 191, 36, 0.1);
+    --danger: #fb7185;
+    --danger-muted: rgba(251, 113, 133, 0.1);
+    --info: #60a5fa;
+    --info-muted: rgba(96, 165, 250, 0.1);
+    --interview: #a78bfa;
+    --interview-muted: rgba(167, 139, 250, 0.1);
+    --sidebar-w: 260px;
+    --radius: 12px;
+    --radius-sm: 8px;
 
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-
-    --card: 240 10% 4.9%;
-    --card-foreground: 0 0% 98%;
-
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-
-    --ring: 240 4.9% 83.9%;
-
-    --radius: 0.625rem;
+    /* Shadcn compatibility tokens */
+    --background: 224 44% 7%;
+    --foreground: 38 22% 89%;
+    --card: 220 33% 11%;
+    --card-foreground: 38 22% 89%;
+    --popover: 220 33% 11%;
+    --popover-foreground: 38 22% 89%;
+    --primary: 41 62% 58%;
+    --primary-foreground: 223 55% 5%;
+    --secondary: 222 34% 15%;
+    --secondary-foreground: 38 22% 89%;
+    --muted: 222 34% 15%;
+    --muted-foreground: 219 16% 60%;
+    --accent-foreground: 223 55% 5%;
+    --destructive: 350 96% 71%;
+    --destructive-foreground: 0 0% 100%;
+    --input: 222 31% 22%;
+    --ring: 41 62% 58%;
   }
 }
 
 * {
-  border-color: hsl(var(--border));
+  border-color: var(--border);
 }
 
 body {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: #09090b;
-  color: #fafafa;
+  font-family: 'Lora', Georgia, serif;
+  background-color: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Minimal subtle scrollbars */
+/* Subtle noise overlay matching code.html */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Playfair Display', Georgia, serif;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.mono {
+  font-family: 'DM Mono', 'Courier New', monospace;
+}
+
+/* Custom scrollbars */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -60,10 +97,46 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 9999px;
+  background: var(--border);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: var(--text-muted);
 }
+
+@keyframes pulse-badge {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 168, 53, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(212, 168, 53, 0); }
+}
+
+.pulse-badge {
+  animation: pulse-badge 2s ease infinite;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeUp {
+  animation: fadeUp 0.4s ease both;
+}
+
+/* Pipeline bar connectors */
+.pipeline-connector {
+  width: 36px;
+  height: 2px;
+  background: var(--border);
+  position: relative;
+  flex-shrink: 0;
+}
+.pipeline-connector::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: -3px;
+  border: 4px solid transparent;
+  border-left-color: var(--border);
+}
+

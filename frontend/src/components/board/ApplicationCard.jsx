@@ -1,22 +1,16 @@
 import React from "react"
 import { Draggable } from "@hello-pangea/dnd"
 import { 
-  Building2, 
   MapPin, 
-  DollarSign, 
-  Clock, 
   Lock, 
   Unlock, 
   MoreHorizontal, 
   Sparkles, 
-  History, 
   Trash2, 
   Mail,
   Check,
   X
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 export function ApplicationCard({ 
   application, 
   index, 
+  stageColor = "var(--accent)",
   onOpenDetails, 
   onStageChange, 
   onToggleLock, 
@@ -42,27 +37,17 @@ export function ApplicationCard({
     ? (typeof application.pending_suggestion === 'string' ? JSON.parse(application.pending_suggestion) : application.pending_suggestion)
     : null
 
-  const getSourceDisplay = (source) => {
-    switch (source) {
-      case "mailbox_auto":
-        return { label: "Gmail", icon: Mail, color: "text-violet-400" }
-      case "manual_user_override":
-        return { label: "Manual", icon: null, color: "text-zinc-400" }
-      case "undo_action":
-        return { label: "Reverted", icon: null, color: "text-amber-400" }
-      default:
-        return { label: "Tracked", icon: null, color: "text-zinc-400" }
-    }
+  const getCompanyInitial = (name) => {
+    return name ? name.trim().charAt(0).toUpperCase() : "A"
   }
 
-  const sourceInfo = getSourceDisplay(application.last_status_change_source)
-  const SourceIcon = sourceInfo.icon
-
   const formatDate = (dateStr) => {
-    if (!dateStr) return ""
+    if (!dateStr) return "Recently"
     const date = new Date(dateStr)
     return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
   }
+
+  const isAutoTracked = application.last_status_change_source === "mailbox_auto"
 
   return (
     <Draggable draggableId={application.id} index={index}>
@@ -71,158 +56,166 @@ export function ApplicationCard({
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          className="mb-2.5 outline-none select-none"
+          className="outline-none select-none"
         >
           <div 
-            className={`group relative rounded-lg border bg-card/90 p-3 text-left transition-all duration-150 cursor-grab active:cursor-grabbing ${
-              snapshot.isDragging 
-                ? "border-primary/80 bg-card shadow-xl ring-1 ring-primary/40 rotate-1 scale-[1.02]" 
-                : "border-border/60 hover:border-zinc-700 hover:bg-zinc-900/90 shadow-sm"
-            } ${pendingSuggestion ? "border-amber-500/40 bg-amber-950/10" : ""}`}
             onClick={() => onOpenDetails(application)}
+            className={`group relative bg-[#0c1019] border border-[#253048] hover:border-[#212d45] rounded-lg p-3.5 text-left transition-all duration-200 cursor-grab active:cursor-grabbing hover:-translate-y-0.5 hover:shadow-lg ${
+              snapshot.isDragging 
+                ? "border-[#d4a853] bg-[#131926] shadow-2xl ring-1 ring-[#d4a853]/40 rotate-1 scale-[1.02]" 
+                : ""
+            } ${pendingSuggestion ? "border-[#fbbf24]/50 bg-[#131926]" : ""}`}
           >
-            {/* Header: Company Name, Role & Options */}
-            <div className="flex items-start justify-between gap-2 mb-1.5">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <h3 className="font-semibold text-xs text-foreground truncate tracking-tight">
-                    {application.company_name}
-                  </h3>
-                  {isLocked && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex text-amber-400/90 shrink-0">
-                            <Lock className="w-3 h-3" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p className="text-[11px]">Locked — auto-sync will not override status</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
+            {/* Left colored status indicator bar */}
+            <div 
+              className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-sm"
+              style={{ backgroundColor: stageColor }}
+            />
+
+            {/* Top row: Logo, Company & Menu */}
+            <div className="flex items-center justify-between gap-2.5 mb-2 pl-1">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div 
+                  className="w-7 h-7 rounded flex items-center justify-center font-mono font-bold text-xs shrink-0"
+                  style={{ 
+                    backgroundColor: `${stageColor}20`, 
+                    color: stageColor 
+                  }}
+                >
+                  {getCompanyInitial(application.company_name)}
                 </div>
-                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                  {application.role_title}
-                </p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <h4 className="font-semibold text-xs text-[#e8e4dc] truncate tracking-tight">
+                      {application.company_name}
+                    </h4>
+                    {isLocked && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex text-[#fbbf24] shrink-0">
+                              <Lock className="w-2.5 h-2.5" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p className="text-[10px]">Locked — auto-sync won't change stage</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Discreet Action Menu */}
+              {/* Action Menu */}
               <div onClick={(e) => e.stopPropagation()} className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="iconSm" className="h-6 w-6 text-muted-foreground hover:text-foreground">
+                    <button className="h-6 w-6 rounded flex items-center justify-center text-[#556178] hover:text-[#e8e4dc] hover:bg-[#1a2235] transition-colors">
                       <MoreHorizontal className="h-3.5 w-3.5" />
-                    </Button>
+                    </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44 text-xs">
-                    <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase font-semibold">Move Stage</DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => onStageChange(application.id, "screening")}>
-                      Screening / OA
+                  <DropdownMenuContent align="end" className="w-48 text-xs bg-[#131926] border-[#253048] text-[#e8e4dc]">
+                    <DropdownMenuLabel className="text-[10px] text-[#556178] uppercase font-mono">Move Stage</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => onStageChange(application.id, "applied")} className="hover:bg-[#1a2235]">
+                      Applied
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onStageChange(application.id, "interviewing")}>
-                      Interviewing
+                    <DropdownMenuItem onClick={() => onStageChange(application.id, "screening")} className="hover:bg-[#1a2235]">
+                      Screening
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onStageChange(application.id, "offer")}>
+                    <DropdownMenuItem onClick={() => onStageChange(application.id, "interview")} className="hover:bg-[#1a2235]">
+                      Interview
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onStageChange(application.id, "offer")} className="hover:bg-[#1a2235]">
                       Offer
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onStageChange(application.id, "rejected")}>
+                    <DropdownMenuItem onClick={() => onStageChange(application.id, "rejected")} className="hover:bg-[#1a2235]">
                       Rejected
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onToggleLock(application.id)}>
+                    <DropdownMenuSeparator className="bg-[#253048]" />
+                    <DropdownMenuItem onClick={() => onToggleLock(application.id)} className="hover:bg-[#1a2235]">
                       {isLocked ? (
-                        <span className="flex items-center gap-1.5 text-amber-400"><Unlock className="w-3.5 h-3.5" /> Unlock</span>
+                        <>
+                          <Unlock className="w-3 h-3 mr-2 text-[#4ade80]" />
+                          Unlock Stage
+                        </>
                       ) : (
-                        <span className="flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" /> Lock Status</span>
+                        <>
+                          <Lock className="w-3 h-3 mr-2 text-[#fbbf24]" />
+                          Lock Stage
+                        </>
                       )}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onOpenDetails(application)}>
-                      <History className="w-3.5 h-3.5 mr-1.5" /> View Timeline
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => onDelete(application.id)} className="text-destructive focus:text-destructive">
-                      <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
+                    <DropdownMenuSeparator className="bg-[#253048]" />
+                    <DropdownMenuItem 
+                      onClick={() => onDelete(application.id)}
+                      className="text-[#fb7185] hover:bg-[rgba(251,113,133,0.1)] focus:text-[#fb7185]"
+                    >
+                      <Trash2 className="w-3 h-3 mr-2" />
+                      Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </div>
 
-            {/* Location / Salary Metadata (Minimal Inline) */}
-            {(application.location || application.salary_range) && (
-              <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground/80 mb-2">
-                {application.location && (
-                  <span className="flex items-center gap-0.5 truncate max-w-[140px]">
-                    <MapPin className="w-2.5 h-2.5 opacity-60 shrink-0" />
-                    {application.location}
-                  </span>
-                )}
-                {application.salary_range && (
-                  <span className="flex items-center gap-0.5 text-emerald-400/90 font-medium">
-                    <DollarSign className="w-2.5 h-2.5 opacity-70 shrink-0" />
-                    {application.salary_range}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* Position Title */}
+            <div className="text-xs text-[#8a94a8] mb-2.5 truncate pl-1">
+              {application.role_title}
+            </div>
 
-            {/* Next Step / Deadline Callout */}
-            {application.next_step && (
-              <div className="mb-2 rounded border border-border/60 bg-muted/30 px-2 py-1 text-[11px] flex items-center gap-1.5 text-muted-foreground">
-                <Clock className="w-3 h-3 text-primary/80 shrink-0" />
-                <span className="truncate text-foreground/90 font-medium">{application.next_step}</span>
-                {application.next_step_deadline && (
-                  <span className="text-[10px] text-muted-foreground/70 shrink-0 ml-auto">
-                    {formatDate(application.next_step_deadline)}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* Tags line */}
+            <div className="flex items-center gap-1.5 flex-wrap mb-2.5 pl-1">
+              <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-[#1a2235] text-[#8a94a8] border border-[#253048]">
+                {isAutoTracked ? "Auto-tracked" : "Manual"}
+              </span>
+              {application.next_step && (
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(167,139,250,0.1)] text-[#a78bfa] border border-[rgba(167,139,250,0.2)] truncate max-w-[140px]">
+                  {application.next_step}
+                </span>
+              )}
+            </div>
 
-            {/* Pending Email Status Change Suggestion (Clean & Compact) */}
+            {/* Proposed Stage Suggestion (When stage locked) */}
             {pendingSuggestion && (
               <div 
-                className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 space-y-1.5 text-xs"
                 onClick={(e) => e.stopPropagation()}
+                className="mb-2.5 p-2 rounded-md bg-[rgba(251,191,36,0.08)] border border-[rgba(251,191,36,0.25)] flex items-center justify-between gap-1.5"
               >
-                <div className="flex items-center justify-between text-[11px] text-amber-400 font-medium">
-                  <span className="flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> Move to {pendingSuggestion.suggested_stage?.toUpperCase()}?
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Sparkles className="w-3 h-3 text-[#fbbf24] shrink-0" />
+                  <span className="text-[10px] text-[#fbbf24] truncate">
+                    Suggested: <strong>{pendingSuggestion.proposed_stage}</strong>
                   </span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => onAcceptSuggestion(application.id, pendingSuggestion.suggested_stage)}
-                      className="p-1 rounded hover:bg-amber-500/20 text-amber-300"
-                      title="Apply change"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => onDismissSuggestion(application.id)}
-                      className="p-1 rounded hover:bg-amber-500/20 text-muted-foreground hover:text-zinc-300"
-                      title="Dismiss"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
                 </div>
-                {pendingSuggestion.reason && (
-                  <p className="text-[10px] text-amber-200/70 leading-snug line-clamp-2">
-                    {pendingSuggestion.reason}
-                  </p>
-                )}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button 
+                    onClick={() => onAcceptSuggestion && onAcceptSuggestion(application.id)}
+                    className="p-1 rounded bg-[#4ade80]/20 text-[#4ade80] hover:bg-[#4ade80]/30"
+                    title="Accept update"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button 
+                    onClick={() => onDismissSuggestion && onDismissSuggestion(application.id)}
+                    className="p-1 rounded bg-[#fb7185]/20 text-[#fb7185] hover:bg-[#fb7185]/30"
+                    title="Dismiss update"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Card Footer: Source & Date */}
-            <div className="flex items-center justify-between pt-1.5 border-t border-border/40 text-[10px] text-muted-foreground/60 font-medium">
-              <span className={`flex items-center gap-1 ${sourceInfo.color}`}>
-                {SourceIcon && <SourceIcon className="w-2.5 h-2.5" />}
-                {sourceInfo.label}
+            {/* Bottom: Location & Date */}
+            <div className="flex items-center justify-between font-mono text-[10px] text-[#556178] pt-2 border-t border-[#253048] pl-1">
+              <span className="flex items-center gap-1 truncate max-w-[140px]">
+                <MapPin className="w-2.5 h-2.5 shrink-0" />
+                <span className="truncate">{application.location || "Remote"}</span>
               </span>
-              <span>{formatDate(application.last_status_change_at)}</span>
+              <span className="shrink-0">
+                {formatDate(application.last_status_change_at || application.created_at)}
+              </span>
             </div>
           </div>
         </div>
