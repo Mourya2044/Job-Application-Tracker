@@ -320,9 +320,9 @@ def google_oauth_callback(
 
 
 @router.post("/sync")
-def trigger_sync(db: Session = Depends(get_db)):
+def trigger_sync(query: Optional[str] = None, db: Session = Depends(get_db)):
     """Trigger on-demand mailbox status capture sync from Gmail."""
-    result = sync_mailbox_events(db)
+    result = sync_mailbox_events(db, query=query)
     return result
 
 

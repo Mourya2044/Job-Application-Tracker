@@ -387,19 +387,18 @@ def setup_gmail_watch(db: Session, consent: UserMailboxConsent) -> Optional[Dict
         return None
 
     try:
-        service = build("gmail", "v1", credentials=creds)
+        service = build("gmail", "v1", credentials=creds, cache_discovery=False)
         res = service.users().watch(
             userId="me",
             body={
                 "topicName": topic,
-                "labelIds": ["INBOX"],
             },
         ).execute()
 
         exp_ms = int(res.get("expiration", 0))
         if exp_ms:
             consent.watch_expiration = datetime.fromtimestamp(exp_ms / 1000.0, timezone.utc)
-        if res.get("historyId"):
+        if res.get("historyId") and not consent.last_history_id:
             consent.last_history_id = str(res["historyId"])
         consent.pubsub_topic = topic
         db.commit()
@@ -421,7 +420,7 @@ def stop_gmail_watch(db: Session, consent: UserMailboxConsent) -> bool:
     creds = get_current_credentials(db=db, consent=consent)
     if creds:
         try:
-            service = build("gmail", "v1", credentials=creds)
+            service = build("gmail", "v1", credentials=creds, cache_discovery=False)
             service.users().stop(userId="me").execute()
             logger.info("Gmail watch stopped for %s", consent.user_email)
         except Exception as e:

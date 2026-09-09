@@ -68,10 +68,11 @@ def get_gmail_credentials(
 
 
 TARGETED_JOB_QUERY = (
-    "newer_than:7d ("
-    "application OR interview OR assessment OR offer OR rejected OR recruiter OR "
+    "newer_than:7d -in:trash -in:spam ("
+    "application OR applied OR applying OR interview OR assessment OR offer OR rejected OR recruiter OR "
     "careers OR greenhouse OR lever OR workday OR ashby OR hackerrank OR codesignal OR "
-    "smartrecruiters OR hirevue OR testgorilla OR talent OR \"status update\" OR \"thank you for applying\""
+    "smartrecruiters OR hirevue OR testgorilla OR talent OR \"status update\" OR \"thank you for applying\" OR "
+    "\"received your\" OR \"submission\" OR \"candidate\" OR \"candidacy\" OR \"interest in\" OR \"next steps\""
     ")"
 )
 
@@ -105,8 +106,8 @@ def sync_mailbox_events(
         }
 
     try:
-        service = build("gmail", "v1", credentials=creds)
-        results = service.users().messages().list(userId="me", labelIds=["INBOX"], q=query).execute()
+        service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+        results = service.users().messages().list(userId="me", q=query, maxResults=100).execute()
         messages = results.get("messages", [])
 
         processed_count = 0
@@ -247,7 +248,7 @@ def sync_mailbox_history_events(
         }
 
     try:
-        service = build("gmail", "v1", credentials=creds)
+        service = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
         # If no historyId yet, do initial baseline sync
         if not consent.last_history_id:
