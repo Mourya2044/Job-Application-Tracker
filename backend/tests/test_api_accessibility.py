@@ -14,7 +14,7 @@ def test_root_and_health_accessible(client: TestClient):
     assert res_health.status_code == 200
     data_health = res_health.json()
     assert data_health.get("status") == "online"
-    assert "background_sync" in data_health
+    assert "sync_mode" in data_health
 
 
 def test_docs_and_openapi_accessible(client: TestClient):
@@ -72,11 +72,11 @@ def test_mailbox_api_accessible(client: TestClient):
     assert "consent_given" in status_data
     assert "is_sync_enabled" in status_data
 
-    res_bg = client.get("/api/mailbox/background-sync")
-    assert res_bg.status_code == 200
-    bg_data = res_bg.json()
-    assert "is_running" in bg_data
-    assert "interval_seconds" in bg_data
+    assert status_data.get("sync_mode") == "pubsub_webhook"
+
+    res_webhook = client.get("/api/mailbox/webhook")
+    assert res_webhook.status_code == 200
+    assert res_webhook.json().get("status") == "online"
 
     res_pending = client.get("/api/mailbox/pending-discoveries")
     assert res_pending.status_code == 200

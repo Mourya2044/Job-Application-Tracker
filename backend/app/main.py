@@ -4,12 +4,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import BACKGROUND_SYNC_ENABLED
 from app.db.database import init_db
 from app.routers.applications import router as applications_router
 from app.routers.mailbox import router as mailbox_router
 from app.routers.jobs import router as jobs_router
-from app.services.background_worker import background_worker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tracking_app")
@@ -20,15 +18,7 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database schema...")
     init_db()
     logger.info("Database initialized successfully.")
-
-    if BACKGROUND_SYNC_ENABLED:
-        logger.info("Launching Gmail background event sync worker...")
-        await background_worker.start()
-
     yield
-
-    logger.info("Shutting down background sync worker...")
-    await background_worker.stop()
     logger.info("Application shutdown complete.")
 
 
@@ -60,7 +50,7 @@ def health():
         "service": "Application Tracking & Discovery Service",
         "version": "1.1.0",
         "status": "online",
-        "background_sync": background_worker.get_status(),
+        "sync_mode": "pubsub_webhook",
         "docs_url": "/docs",
     }
 
@@ -72,7 +62,7 @@ def root(request: Request):
         "service": "Application Tracking & Discovery Service",
         "version": "1.1.0",
         "status": "online",
-        "background_sync": background_worker.get_status(),
+        "sync_mode": "pubsub_webhook",
         "docs_url": "/docs",
         "health_url": "/health",
         "ui_url": "/ui",

@@ -69,3 +69,20 @@ def test_pubsub_watch_stop_endpoint(client: TestClient):
     assert res.status_code == 200
     data = res.json()
     assert data.get("status") == "success"
+
+
+def test_sync_mailbox_history_unauthorized(db_session):
+    from app.db.models import UserMailboxConsent
+    from app.services.mailbox_sync import sync_mailbox_history_events
+    consent = UserMailboxConsent(
+        provider="google",
+        consent_given=False,
+        is_sync_enabled=False,
+    )
+    db_session.add(consent)
+    db_session.commit()
+
+    res = sync_mailbox_history_events(db_session, consent=consent)
+    assert res["status"] == "unauthorized"
+    assert res["processed_count"] == 0
+

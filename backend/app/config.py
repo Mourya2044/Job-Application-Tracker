@@ -34,9 +34,6 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 
-BACKGROUND_SYNC_INTERVAL_SECONDS = int(os.getenv("BACKGROUND_SYNC_INTERVAL_SECONDS", "120"))
-# Background polling worker disabled in favor of real-time Google Cloud Pub/Sub push webhooks
-BACKGROUND_SYNC_ENABLED = os.getenv("BACKGROUND_SYNC_ENABLED", "false").lower() == "true"
 GMAIL_PUBSUB_TOPIC = os.getenv("GMAIL_PUBSUB_TOPIC", "projects/gmail-summarise-503906/topics/gmail-event")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://job-application-tracker-one-ruddy.vercel.app").rstrip("/")
 

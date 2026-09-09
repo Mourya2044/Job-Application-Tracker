@@ -1,7 +1,6 @@
 import os
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ["BACKGROUND_SYNC_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,7 +24,6 @@ def db_session(monkeypatch):
     Base.metadata.create_all(bind=engine)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     monkeypatch.setattr("app.routers.mailbox.SessionLocal", TestingSessionLocal)
-    monkeypatch.setattr("app.services.background_worker.SessionLocal", TestingSessionLocal)
     session = TestingSessionLocal()
     try:
         yield session

@@ -31,7 +31,6 @@ from app.services.consent_manager import (
     setup_gmail_watch,
     stop_gmail_watch,
 )
-from app.services.background_worker import background_worker
 
 from app.services.mailbox_sync import (
 
@@ -83,7 +82,7 @@ def get_mailbox_status(db: Session = Depends(get_db)):
             "watch_active": is_watch_active,
             "pubsub_topic": consent.pubsub_topic or GMAIL_PUBSUB_TOPIC,
             "has_token_file": has_token,
-            "background_sync": background_worker.get_status(),
+            "sync_mode": "pubsub_webhook",
             "stats": {
                 "total_processed_emails": total_logs,
                 "total_matched_updates": matched_logs,
@@ -107,7 +106,7 @@ def get_mailbox_status(db: Session = Depends(get_db)):
             "watch_active": False,
             "pubsub_topic": GMAIL_PUBSUB_TOPIC,
             "has_token_file": has_file,
-            "background_sync": background_worker.get_status(),
+            "sync_mode": "pubsub_webhook",
             "stats": {
                 "total_processed_emails": 0,
                 "total_matched_updates": 0,
@@ -422,51 +421,7 @@ def simulate_incoming_email(payload: SimulateEmailPayload, db: Session = Depends
     }
 
 
-# =============================================================================
-# Background Sync & Event-Based Tracking Controls
-# =============================================================================
 
-class BackgroundSyncConfigPayload(BaseModel):
-    interval_seconds: int = Field(120, ge=10, le=3600, description="Interval in seconds between background sync loops")
-
-
-
-@router.get("/background-sync")
-def get_background_sync_status():
-    """Retrieve the real-time operational status and telemetry of the background sync worker."""
-    return background_worker.get_status()
-
-
-@router.post("/background-sync/start")
-async def start_background_sync():
-    """Start or resume the periodic background sync worker."""
-    await background_worker.start()
-    return background_worker.get_status()
-
-
-@router.post("/background-sync/stop")
-async def stop_background_sync():
-    """Pause the background sync worker."""
-    await background_worker.stop()
-    return background_worker.get_status()
-
-
-@router.post("/background-sync/configure")
-def configure_background_sync(payload: BackgroundSyncConfigPayload):
-    """Configure the background sync loop interval in seconds."""
-    background_worker.set_interval(payload.interval_seconds)
-    return background_worker.get_status()
-
-
-@router.post("/background-sync/trigger")
-async def trigger_background_sync_cycle():
-    """Immediately trigger a background sync run without waiting for the timer."""
-    result = await background_worker.trigger_cycle()
-    return {
-        "status": "success",
-        "result": result,
-        "worker": background_worker.get_status(),
-    }
 
 
 # =============================================================================
