@@ -1,8 +1,9 @@
 import os
 
-# Disable Gradio 6 SSR Node proxy to prevent SvelteKit from hijacking API routes (/health, /docs, /api/*)
+# Disable Gradio 6 SSR Node proxy and analytics telemetry
 os.environ["GRADIO_SSR_MODE"] = "False"
 os.environ["GRADIO_SERVER_MODE_ENABLED"] = "1"
+os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 
 import logging
 from fastapi import Request
@@ -38,7 +39,7 @@ from app.config import BACKGROUND_SYNC_ENABLED
 from app.db.database import init_db
 
 # 3. Create Gradio interface for Hugging Face Space UI
-with gr.Blocks(title="Job Tracker Backend") as demo:
+with gr.Blocks(title="Job Tracker Backend", analytics_enabled=False) as demo:
     gr.Markdown("# 🚀 Job Tracker API & Background Sync Worker")
     gr.Markdown(
         """
@@ -135,16 +136,24 @@ fastapi_app.openapi = lambda: get_openapi(
     routes=fastapi_app.routes,
 )
 
-# 5. Background sync worker lifecycle
-@fastapi_app.on_event("startup")
-async def on_startup():
+# 5. Background sync worker lifecycle using modern FastAPI lifespan context
+from contextlib import asynccontextmanager
+
+_original_lifespan = fastapi_app.router.lifespan_context
+
+@asynccontextmanager
+async def lifespan(app):
     init_db()
     if BACKGROUND_SYNC_ENABLED:
         await background_worker.start()
-
-@fastapi_app.on_event("shutdown")
-async def on_shutdown():
+    if _original_lifespan:
+        async with _original_lifespan(app) as maybe_state:
+            yield maybe_state
+    else:
+        yield
     await background_worker.stop()
+
+fastapi_app.router.lifespan_context = lifespan
 
 # 6. Launch via demo.launch(_app=fastapi_app, ssr_mode=False)
 # Passing _app=fastapi_app ensures Gradio configures our existing FastAPI instance rather than creating a new blank one.
