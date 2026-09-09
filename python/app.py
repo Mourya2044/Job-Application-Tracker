@@ -26,5 +26,5 @@ with gr.Blocks(title="Job Tracker Backend") as demo:
 # Mount the Gradio demo UI onto FastAPI app at /ui
 app = gr.mount_gradio_app(app, demo, path="/ui")
 
-# In ZeroGPU / Gradio SDK on Hugging Face, demo.launch() must be called without custom kwargs
-demo.launch()
+# In ZeroGPU, prevent launching secondary node SSR servers by passing ssr_mode=False
+demo.launch(ssr_mode=False)
