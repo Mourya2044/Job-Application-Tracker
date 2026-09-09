@@ -94,9 +94,9 @@ def root(request: Request):
         p { margin: 0 0 24px 0; color: #94a3b8; font-size: 14px; line-height: 1.5; }
         .links { display: flex; flex-direction: column; gap: 10px; }
         .btn { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #334155; color: #f8fafc; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.2s; }
-        .btn:hover { background: #475569; transform: translateY(-1px); }
-        .btn-primary { background: #6366f1; color: white; }
-        .btn-primary:hover { background: #4f46e5; }
+        .btn:hover {{ background: #475569; transform: translateY(-1px); }}
+        .btn-primary {{ background: #6366f1; color: white; }}
+        .btn-primary:hover {{ background: #4f46e5; }}
     </style>
 </head>
 <body>
