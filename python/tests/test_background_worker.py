@@ -24,7 +24,13 @@ async def test_background_worker_lifecycle():
 
     await worker.stop()
     assert not worker.is_running
+    assert worker.is_paused is True
     assert worker.last_status == "paused"
+
+    await worker.start()
+    assert worker.is_running
+    assert worker.is_paused is False
+    await worker.stop()
 
 
 def test_sync_mailbox_history_unauthorized(db_session):

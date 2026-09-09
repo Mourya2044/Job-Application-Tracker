@@ -22,6 +22,8 @@ class GmailBackgroundSyncWorker:
     def __init__(self, interval_seconds: int = BACKGROUND_SYNC_INTERVAL_SECONDS):
         self.interval_seconds = max(10, interval_seconds)
         self.is_running = False
+        self.is_paused = False
+        self._bootstrapped = False
         self._task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
 
@@ -37,6 +39,7 @@ class GmailBackgroundSyncWorker:
     def get_status(self) -> Dict:
         return {
             "is_running": self.is_running,
+            "is_paused": self.is_paused,
             "interval_seconds": self.interval_seconds,
             "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
             "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
@@ -49,6 +52,8 @@ class GmailBackgroundSyncWorker:
 
     async def start(self):
         async with self._lock:
+            self._bootstrapped = True
+            self.is_paused = False
             if self.is_running:
                 logger.info("Background sync worker is already running.")
                 return
@@ -60,6 +65,7 @@ class GmailBackgroundSyncWorker:
 
     async def stop(self):
         async with self._lock:
+            self.is_paused = True
             if not self.is_running:
                 return
 

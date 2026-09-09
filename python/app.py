@@ -87,7 +87,7 @@ import asyncio
 
 @fastapi_app.middleware("http")
 async def json_root_middleware(request: Request, call_next):
-    if BACKGROUND_SYNC_ENABLED and not background_worker.is_running:
+    if BACKGROUND_SYNC_ENABLED and not background_worker._bootstrapped and not background_worker.is_paused:
         try:
             asyncio.create_task(background_worker.start())
         except Exception:
