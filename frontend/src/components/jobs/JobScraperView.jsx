@@ -12,7 +12,8 @@ import {
   Globe, 
   RefreshCw,
   Building2,
-  SlidersHorizontal
+  SlidersHorizontal,
+  X
 } from "lucide-react"
 import { toast } from "sonner"
 import { fetchApi } from "@/config/api"
@@ -38,6 +39,43 @@ export function JobScraperView({ onImportJob }) {
   // Advanced scraper states
   const [atsProvider, setAtsProvider] = useState("greenhouse")
   const [atsSlug, setAtsSlug] = useState("stripe")
+
+  // AI Fit Inspector states (ZeroGPU enabled)
+  const [selectedFitJob, setSelectedFitJob] = useState(null)
+  const [isFitModalOpen, setIsFitModalOpen] = useState(false)
+  const [isAnalyzingFit, setIsAnalyzingFit] = useState(false)
+  const [fitResult, setFitResult] = useState(null)
+  const [candidateResume, setCandidateResume] = useState(() => {
+    return localStorage.getItem("job_tracker_user_resume") || 
+      "Full-stack software engineer with experience in Python, FastAPI, React, PostgreSQL, Docker, AWS, and system design."
+  })
+
+  const handleInspectFit = async (job) => {
+    setSelectedFitJob(job)
+    setIsFitModalOpen(true)
+    setIsAnalyzingFit(true)
+    setFitResult(null)
+
+    const storedResume = localStorage.getItem("job_tracker_user_resume") || candidateResume
+
+    try {
+      const data = await fetchApi("/api/ai/match-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resume_text: storedResume,
+          job_description: `${job.title} at ${job.company_name}. Location: ${job.location || 'Remote'}. Tags: ${(job.tags || []).join(', ')}`,
+          job_title: job.title,
+          company: job.company_name,
+        }),
+      })
+      setFitResult(data)
+    } catch {
+      toast.error("Failed to analyze job fit")
+    } finally {
+      setIsAnalyzingFit(false)
+    }
+  }
 
   const filters = [
     { key: "all", label: "All" },
@@ -494,6 +532,15 @@ export function JobScraperView({ onImportJob }) {
                   </span>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleInspectFit(job)}
+                      className="px-3 py-1.5 rounded-lg border border-[#253048] hover:border-[#d4a853] text-[#8a94a8] hover:text-[#d4a853] font-mono text-xs flex items-center gap-1.5 transition-colors"
+                      title="Analyze your resume fit with ZeroGPU"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-[#d4a853]" />
+                      <span>AI Fit</span>
+                    </button>
                     {job.url && (
                       <a
                         href={job.url}
@@ -526,6 +573,141 @@ export function JobScraperView({ onImportJob }) {
           })
         )}
       </div>
+
+      {/* ZeroGPU AI Fit Modal */}
+      {isFitModalOpen && selectedFitJob && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(4,6,12,0.8)] backdrop-blur-sm animate-fadeIn"
+          onClick={() => setIsFitModalOpen(false)}
+        >
+          <div 
+            className="bg-[#131926] border border-[#253048] rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fadeUp overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between pb-4 border-b border-[#253048]">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-mono text-[#d4a853] font-semibold mb-1">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>ZeroGPU Resume Fit Assessment</span>
+                </div>
+                <h3 className="font-serif text-lg font-bold text-[#e8e4dc]">
+                  {selectedFitJob.title}
+                </h3>
+                <div className="text-xs text-[#8a94a8]">
+                  {selectedFitJob.company_name} · {selectedFitJob.location || "Remote"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFitModalOpen(false)}
+                className="p-1.5 rounded-lg border border-[#253048] text-[#8a94a8] hover:text-[#e8e4dc]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+              {isAnalyzingFit ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3 text-[#d4a853] font-mono text-xs">
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  <span>Evaluating role fit with local AI model...</span>
+                </div>
+              ) : fitResult ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between bg-[#0c1019] p-3.5 rounded-xl border border-[#253048]">
+                    <span className="text-xs text-[#8a94a8]">Match Assessment</span>
+                    <span className="font-mono text-xs font-bold px-3 py-1 rounded-full bg-[rgba(212,168,53,0.15)] text-[#d4a853] border border-[rgba(212,168,53,0.3)]">
+                      {fitResult.fit_level} — {fitResult.match_score}%
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-[#e8e4dc] leading-relaxed">
+                    {fitResult.summary}
+                  </p>
+
+                  {fitResult.matching_skills?.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-mono uppercase text-[#4ade80] mb-1.5">
+                        Matching Qualifications ({fitResult.matching_skills.length})
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {fitResult.matching_skills.map((s, idx) => (
+                          <span
+                            key={idx}
+                            className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.25)]"
+                          >
+                            ✓ {s}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {fitResult.missing_skills?.length > 0 && (
+                    <div>
+                      <div className="text-[10px] font-mono uppercase text-[#fbbf24] mb-1.5">
+                        Missing Requirements to Address ({fitResult.missing_skills.length})
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {fitResult.missing_skills.map((s, idx) => (
+                          <span
+                            key={idx}
+                            className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(251,191,36,0.1)] text-[#fbbf24] border border-[rgba(251,191,36,0.25)]"
+                          >
+                            ! {s}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {fitResult.recommendations?.length > 0 && (
+                    <div className="pt-2 border-t border-[#253048]">
+                      <div className="text-[10px] font-mono uppercase text-[#8a94a8] mb-1.5">
+                        Preparation Recommendations
+                      </div>
+                      <ul className="text-xs text-[#8a94a8] space-y-1 list-disc pl-4 font-sans">
+                        {fitResult.recommendations.map((r, idx) => (
+                          <li key={idx}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="pt-4 border-t border-[#253048] flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setIsFitModalOpen(false)}
+                className="px-4 py-2 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc]"
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleApplyOrTrack(selectedFitJob)
+                  setIsFitModalOpen(false)
+                }}
+                disabled={trackedJobIds.has(selectedFitJob.id)}
+                className="px-4 py-2 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] text-xs font-mono font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {trackedJobIds.has(selectedFitJob.id) ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Already Tracked</span>
+                  </>
+                ) : (
+                  <span>Track This Job</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

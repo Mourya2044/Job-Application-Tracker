@@ -9,6 +9,7 @@ from app.db.database import init_db
 from app.routers.applications import router as applications_router
 from app.routers.mailbox import router as mailbox_router
 from app.routers.jobs import router as jobs_router
+from app.routers.ai import router as ai_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tracking_app")
@@ -43,6 +44,7 @@ app.add_middleware(
 app.include_router(applications_router)
 app.include_router(mailbox_router)
 app.include_router(jobs_router)
+app.include_router(ai_router)
 
 
 @app.get("/health")
