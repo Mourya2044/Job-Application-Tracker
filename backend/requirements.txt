@@ -9,6 +9,7 @@ sqlalchemy
 rapidfuzz
 pytest
 psycopg2-binary
+psycopg[binary]
 httpx
 gradio
 gliner2

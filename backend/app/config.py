@@ -14,13 +14,49 @@ DB_PATH = BASE_DIR / "tracking.db"
 raw_db_url = os.getenv("DATABASE_URL")
 if raw_db_url:
     # Some providers like Supabase or Heroku output postgres:// which SQLAlchemy deprecated in favor of postgresql://
-    if raw_db_url.startswith("postgres://") or "postgresql" in raw_db_url:
+    if raw_db_url.startswith("postgres://"):
+        raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
+
+    if "postgresql" in raw_db_url:
+        has_psycopg = False
+        has_psycopg2 = False
+        try:
+            import psycopg  # noqa: F401
+            has_psycopg = True
+        except ImportError:
+            pass
         try:
             import psycopg2  # noqa: F401
-            DATABASE_URL = raw_db_url.replace("postgres://", "postgresql://", 1)
+            has_psycopg2 = True
         except ImportError:
-            # Fallback to local SQLite if postgresql driver (psycopg2) is not installed on this system
+            pass
+
+        if not has_psycopg and not has_psycopg2:
             DATABASE_URL = f"sqlite:///{DB_PATH}"
+        elif "+psycopg://" in raw_db_url:
+            if has_psycopg:
+                DATABASE_URL = raw_db_url
+            elif has_psycopg2:
+                DATABASE_URL = raw_db_url.replace("+psycopg://", "+psycopg2://", 1)
+            else:
+                DATABASE_URL = f"sqlite:///{DB_PATH}"
+        elif "+psycopg2://" in raw_db_url:
+            if has_psycopg2:
+                DATABASE_URL = raw_db_url
+            elif has_psycopg:
+                DATABASE_URL = raw_db_url.replace("+psycopg2://", "+psycopg://", 1)
+            else:
+                DATABASE_URL = f"sqlite:///{DB_PATH}"
+        elif raw_db_url.startswith("postgresql://"):
+            # Explicitly choose installed dialect so SQLAlchemy doesn't guess a missing driver
+            if has_psycopg2:
+                DATABASE_URL = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+            elif has_psycopg:
+                DATABASE_URL = raw_db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+            else:
+                DATABASE_URL = raw_db_url
+        else:
+            DATABASE_URL = raw_db_url
     else:
         DATABASE_URL = raw_db_url
 else:

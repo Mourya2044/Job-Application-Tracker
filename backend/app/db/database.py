@@ -12,7 +12,13 @@ else:
     engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["pool_recycle"] = 300
 
-engine = create_engine(DATABASE_URL, **engine_kwargs)
+try:
+    engine = create_engine(DATABASE_URL, **engine_kwargs)
+except Exception as _engine_err:
+    logger.error("Failed to initialize database engine for '%s': %s. Falling back to local SQLite.", DATABASE_URL, _engine_err)
+    from app.config import DB_PATH
+    DATABASE_URL = f"sqlite:///{DB_PATH}"
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
