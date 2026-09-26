@@ -51,7 +51,7 @@ export function AddApplicationModal({ isOpen, onClose, onAddApplication }) {
       onClick={onClose}
     >
       <div 
-        className="bg-[#131926] border border-[#253048] rounded-2xl w-full max-w-lg p-6 text-[#e8e4dc] shadow-2xl animate-fadeUp"
+        className="bg-[#131926] border border-[#253048] rounded-2xl w-full max-w-lg p-5 sm:p-6 text-[#e8e4dc] shadow-2xl animate-fadeUp max-h-[92dvh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between pb-4 border-b border-[#253048] mb-4">

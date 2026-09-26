@@ -52,7 +52,7 @@ export function KanbanColumn({
   const config = STAGE_CONFIG[stage?.toLowerCase()] || STAGE_CONFIG.applied
 
   return (
-    <div className="flex flex-col w-[290px] shrink-0 bg-[#131926] border border-[#253048] rounded-xl transition-all duration-200">
+    <div className="flex flex-col w-[82vw] max-w-[300px] sm:w-[290px] shrink-0 bg-[#131926] border border-[#253048] rounded-xl transition-all duration-200">
       {/* Column Header */}
       <div className="p-4 flex items-center gap-2.5 border-b border-[#253048] shrink-0">
         <div 

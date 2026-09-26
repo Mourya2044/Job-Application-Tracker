@@ -1,4 +1,13 @@
 import React, { useState, useEffect, useRef } from "react"
+import { 
+  Routes, 
+  Route, 
+  Navigate, 
+  NavLink, 
+  useNavigate, 
+  useLocation, 
+  useSearchParams 
+} from "react-router-dom"
 import { Toaster, toast } from "sonner"
 import { fetchApi } from "@/config/api"
 import { KanbanBoard } from "@/components/board/KanbanBoard"
@@ -23,7 +32,12 @@ import {
   MoreVertical, 
   X,
   LayoutGrid,
-  LogOut
+  LogOut,
+  Menu,
+  Kanban,
+  ListFilter,
+  TrendingUp,
+  Briefcase
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -35,6 +49,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export default function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const [boardData, setBoardData] = useState({ columns: [], total_applications: 0 })
   const [pendingDiscoveries, setPendingDiscoveries] = useState([])
   const [selectedApp, setSelectedApp] = useState(null)
@@ -43,13 +61,32 @@ export default function App() {
   const [isSimulateOpen, setIsSimulateOpen] = useState(false)
   const [isActivityOpen, setIsActivityOpen] = useState(false)
   const [isAddOpen, setIsAddOpen] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [consentStatus, setConsentStatus] = useState(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isSyncing, setIsSyncing] = useState(false)
-  const [currentView, setCurrentView] = useState("dashboard") // dashboard, approvals, tracking, search
-  const [trackingMode, setTrackingMode] = useState("kanban") // kanban, list
+
+  // Tracking mode synced with URL search parameter ?mode=kanban|list
+  const trackingMode = searchParams.get("mode") === "list" ? "list" : "kanban"
+
+  const setTrackingMode = (mode) => {
+    setSearchParams(prev => {
+      const updated = new URLSearchParams(prev)
+      if (mode === "list") {
+        updated.set("mode", "list")
+      } else {
+        updated.delete("mode")
+      }
+      return updated
+    })
+  }
 
   const prevUpdatesRef = useRef(null)
+
+  // Close mobile drawer when route changes
+  useEffect(() => {
+    setIsMobileMenuOpen(false)
+  }, [location.pathname])
 
   useEffect(() => {
     // Check for OAuth redirect return params (?oauth=success or ?oauth=error)
@@ -334,17 +371,32 @@ export default function App() {
     ? consentStatus.user_email.slice(0, 2).toUpperCase()
     : "ME"
 
+  // Active navigation styling helper
+  const sidebarNavLinkClass = ({ isActive }) =>
+    `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
+      isActive
+        ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold shadow-sm"
+        : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
+    }`
+
+  const bottomNavLinkClass = ({ isActive }) =>
+    `flex flex-col items-center justify-center py-1.5 px-3 rounded-lg text-[10px] font-mono transition-colors relative ${
+      isActive
+        ? "text-[#d4a853] font-semibold"
+        : "text-[#8a94a8] hover:text-[#e8e4dc]"
+    }`
+
   return (
-    <div className="min-h-screen bg-[#0c1019] text-[#e8e4dc] font-sans flex">
+    <div className="min-h-screen bg-[#0c1019] text-[#e8e4dc] font-sans flex flex-col md:flex-row">
       <Toaster position="bottom-right" richColors theme="dark" />
 
       {/* ============================================
-          SIDEBAR NAVIGATION (matching code.html)
+          DESKTOP SIDEBAR NAVIGATION
           ============================================ */}
-      <aside className="fixed left-0 top-0 bottom-0 w-[260px] bg-[#131926] border-r border-[#253048] flex flex-col p-6 pb-5 z-40 hidden md:flex">
+      <aside className="fixed left-0 top-0 bottom-0 w-[260px] bg-[#131926] border-r border-[#253048] flex-col p-6 pb-5 z-40 hidden md:flex">
         {/* Brand */}
         <div className="px-3 mb-1">
-          <div className="font-sans text-2xl font-bold text-[#d4a853]">
+          <div className="font-sans text-2xl font-bold text-[#d4a853] tracking-tight">
             Hired<span className="opacity-40">.</span>
           </div>
           <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] mt-0.5">
@@ -358,27 +410,13 @@ export default function App() {
             Main
           </div>
 
-          <button
-            onClick={() => setCurrentView("dashboard")}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
-              currentView === "dashboard"
-                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
-                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
-            }`}
-          >
+          <NavLink to="/dashboard" className={sidebarNavLinkClass}>
             <LayoutGrid className="w-4 h-4 shrink-0" />
             <span>Dashboard</span>
-          </button>
+          </NavLink>
 
-          <button
-            onClick={() => setCurrentView("approvals")}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
-              currentView === "approvals"
-                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
-                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
-            }`}
-          >
-            <div className="flex items-center gap-3">
+          <NavLink to="/approvals" className={sidebarNavLinkClass}>
+            <div className="flex items-center gap-3 flex-1">
               <Bell className="w-4 h-4 shrink-0" />
               <span>Approvals</span>
             </div>
@@ -387,35 +425,21 @@ export default function App() {
                 {pendingDiscoveries.length}
               </span>
             )}
-          </button>
+          </NavLink>
 
-          <button
-            onClick={() => setCurrentView("tracking")}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
-              currentView === "tracking"
-                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
-                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
-            }`}
-          >
+          <NavLink to="/tracking" className={sidebarNavLinkClass}>
             <TrendingUp className="w-4 h-4 shrink-0" />
             <span>Tracking</span>
-          </button>
+          </NavLink>
 
           <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] px-3 pt-6 mb-2">
             Discover
           </div>
 
-          <button
-            onClick={() => setCurrentView("search")}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
-              currentView === "search"
-                ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
-                : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
-            }`}
-          >
+          <NavLink to="/jobs" className={sidebarNavLinkClass}>
             <Search className="w-4 h-4 shrink-0" />
             <span>Job Search</span>
-          </button>
+          </NavLink>
         </nav>
 
         {/* Sidebar Spacer */}
@@ -443,16 +467,171 @@ export default function App() {
       </aside>
 
       {/* ============================================
+          MOBILE OFF-CANVAS DRAWER MENU
+          ============================================ */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-[#080b12]/80 backdrop-blur-sm md:hidden animate-fadeIn"
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          <div 
+            className="fixed left-0 top-0 bottom-0 w-[280px] bg-[#131926] border-r border-[#253048] flex flex-col p-6 z-50 shadow-2xl animate-fadeUp"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-[#253048]">
+              <div>
+                <div className="font-sans text-2xl font-bold text-[#d4a853]">
+                  Hired<span className="opacity-40">.</span>
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178]">
+                  Application Tracker
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-2 rounded-lg border border-[#253048] text-[#8a94a8] hover:text-[#e8e4dc]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Mobile Drawer Navigation Links */}
+            <nav className="mt-6 space-y-1.5 flex-1 overflow-y-auto">
+              <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] px-2 mb-2">
+                Navigation
+              </div>
+
+              <NavLink 
+                to="/dashboard" 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={sidebarNavLinkClass}
+              >
+                <LayoutGrid className="w-4 h-4 shrink-0" />
+                <span>Dashboard</span>
+              </NavLink>
+
+              <NavLink 
+                to="/approvals" 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={sidebarNavLinkClass}
+              >
+                <div className="flex items-center gap-3 flex-1">
+                  <Bell className="w-4 h-4 shrink-0" />
+                  <span>Approvals</span>
+                </div>
+                {pendingDiscoveries.length > 0 && (
+                  <span className="w-5 h-5 rounded-full bg-[#d4a853] text-[#080b12] font-mono text-[10px] font-bold flex items-center justify-center">
+                    {pendingDiscoveries.length}
+                  </span>
+                )}
+              </NavLink>
+
+              <NavLink 
+                to="/tracking" 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={sidebarNavLinkClass}
+              >
+                <TrendingUp className="w-4 h-4 shrink-0" />
+                <span>Tracking Board</span>
+              </NavLink>
+
+              <NavLink 
+                to="/jobs" 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={sidebarNavLinkClass}
+              >
+                <Search className="w-4 h-4 shrink-0" />
+                <span>Live Job Discovery</span>
+              </NavLink>
+
+              <div className="pt-6 border-t border-[#253048] my-4">
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false)
+                    setIsAddOpen(true)
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] font-mono text-xs font-semibold shadow-sm"
+                >
+                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                  <span>New Application</span>
+                </button>
+              </div>
+            </nav>
+
+            {/* Mobile Account Details & Logout */}
+            <div className="pt-4 border-t border-[#253048] space-y-3">
+              <div 
+                onClick={() => {
+                  setIsMobileMenuOpen(false)
+                  setIsConsentOpen(true)
+                }}
+                className="flex items-center gap-3 cursor-pointer p-2 rounded-xl bg-[#0c1019] border border-[#253048]"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#d4a853] to-[#8b6914] flex items-center justify-center font-mono font-bold text-xs text-[#080b12] shrink-0">
+                  {userInitials}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-[#e8e4dc] truncate capitalize">
+                    {userDisplayName}
+                  </div>
+                  <div className="font-mono text-[10px] text-[#556178] truncate">
+                    {userEmailDisplay}
+                  </div>
+                </div>
+              </div>
+
+              {isConnected ? (
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false)
+                    handleDisconnect()
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-[#253048] text-xs font-mono text-[#fb7185] hover:bg-[rgba(251,113,133,0.1)] transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Sign Out</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false)
+                    handleConnectGoogle()
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-[#d4a853] text-xs font-mono text-[#d4a853] hover:bg-[rgba(212,168,53,0.1)] transition-colors"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Connect Google</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================
           MAIN CONTENT AREA
           ============================================ */}
-      <div className="flex-1 md:ml-[260px] min-h-screen flex flex-col">
+      <div className="flex-1 md:ml-[260px] min-h-screen flex flex-col pb-20 md:pb-8">
         {/* Top Header Bar */}
-        <header className="sticky top-0 z-30 bg-[#0c1019]/90 backdrop-blur-md border-b border-[#253048] px-6 py-3.5 flex items-center justify-between gap-4">
-          {/* Mobile brand & Quick Search */}
-          <div className="flex items-center gap-3 flex-1 max-w-md">
-            <div className="font-sans font-bold text-[#d4a853] md:hidden text-lg">
+        <header className="sticky top-0 z-30 bg-[#0c1019]/90 backdrop-blur-md border-b border-[#253048] px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3">
+          {/* Mobile hamburger + brand + quick search */}
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 max-w-md">
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-1.5 rounded-lg border border-[#253048] text-[#8a94a8] hover:text-[#e8e4dc] md:hidden shrink-0"
+              aria-label="Open mobile menu"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+
+            <div 
+              onClick={() => navigate("/dashboard")}
+              className="font-sans font-bold text-[#d4a853] md:hidden text-lg cursor-pointer shrink-0"
+            >
               Hired.
             </div>
+
             <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#556178]" />
               <input
@@ -474,8 +653,8 @@ export default function App() {
           </div>
 
           {/* Right Header Actions */}
-          <div className="flex items-center gap-2.5">
-            {/* Auto-Sync status */}
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* Auto-Sync status (desktop/tablet) */}
             <button
               onClick={() => setIsConsentOpen(true)}
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-colors"
@@ -491,7 +670,7 @@ export default function App() {
             <button
               onClick={handleSyncMailbox}
               disabled={isSyncing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-all active:scale-95 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-all active:scale-95 disabled:opacity-50"
               title="Sync Mailbox"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-[#d4a853]" : ""}`} />
@@ -501,10 +680,10 @@ export default function App() {
             {/* Add Application Button */}
             <button
               onClick={() => setIsAddOpen(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] font-mono text-xs font-semibold transition-all active:scale-95 shadow-sm hover:-translate-y-0.5"
+              className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] font-mono text-xs font-semibold transition-all active:scale-95 shadow-sm hover:-translate-y-0.5"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>New</span>
+              <span className="hidden sm:inline">New</span>
             </button>
 
             {/* More Options Dropdown */}
@@ -536,7 +715,7 @@ export default function App() {
                   </DropdownMenuItem>
                 ) : (
                   <DropdownMenuItem onClick={handleConnectGoogle} className="hover:bg-[#1a2235] text-[#d4a853] focus:text-[#d4a853]">
-                    <LogOut className="w-3.5 h-3.5 mr-2" />
+                    <Mail className="w-3.5 h-3.5 mr-2" />
                     Connect Google Account
                   </DropdownMenuItem>
                 )}
@@ -555,155 +734,208 @@ export default function App() {
         </header>
 
         {/* View Router Body */}
-        <main className="flex-1 p-6 md:p-10 max-w-7xl w-full mx-auto">
-          {/* 1. DASHBOARD VIEW */}
-          {currentView === "dashboard" && (
-            <DashboardView
-              boardData={boardData}
-              pendingDiscoveries={pendingDiscoveries}
-              consentStatus={consentStatus}
-              onSwitchView={setCurrentView}
-              onOpenDetails={handleOpenDetails}
-            />
-          )}
-
-          {/* 2. APPROVALS VIEW */}
-          {currentView === "approvals" && (
-            <ApprovalsView
-              discoveries={pendingDiscoveries}
-              onAccept={handleAcceptDiscovery}
-              onDismiss={handleDismissDiscovery}
-              onSyncMailbox={handleSyncMailbox}
-              isSyncing={isSyncing}
-            />
-          )}
-
-          {/* 3. TRACKING VIEW */}
-          {currentView === "tracking" && (
-            <div className="space-y-6 animate-fadeUp">
-              {/* Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h1 className="text-3xl sm:text-4xl font-bold font-sans text-[#e8e4dc]">
-                    Application Tracking
-                  </h1>
-                  <p className="text-[#8a94a8] text-sm mt-1.5">
-                    Real-time status updates. Click cards to view details, or drag between columns in board view.
-                  </p>
-                </div>
-
-                {/* View Toggle (Board vs List) matching code.html */}
-                <div className="inline-flex bg-[#131926] border border-[#253048] rounded-lg overflow-hidden self-start sm:self-auto">
-                  <button
-                    onClick={() => setTrackingMode("kanban")}
-                    className={`px-4 py-2 font-mono text-xs flex items-center gap-2 transition-colors ${
-                      trackingMode === "kanban"
-                        ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
-                        : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
-                    }`}
-                  >
-                    <Kanban className="w-3.5 h-3.5" />
-                    <span>Board</span>
-                  </button>
-                  <button
-                    onClick={() => setTrackingMode("list")}
-                    className={`px-4 py-2 font-mono text-xs flex items-center gap-2 border-l border-[#253048] transition-colors ${
-                      trackingMode === "list"
-                        ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
-                        : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
-                    }`}
-                  >
-                    <ListFilter className="w-3.5 h-3.5" />
-                    <span>List</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Shared Pipeline Bar matching code.html */}
-              <div className="flex items-center gap-0 p-6 bg-[#131926] border border-[#253048] rounded-xl overflow-x-auto shadow-sm">
-                <div 
-                  onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
-                >
-                  <span className="font-sans text-3xl font-bold block text-[#60a5fa] leading-none">
-                    {pipelineCounts.applied}
-                  </span>
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
-                    Applied
-                  </span>
-                </div>
-
-                <div className="pipeline-connector hidden sm:block" />
-
-                <div 
-                  onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
-                >
-                  <span className="font-sans text-3xl font-bold block text-[#fbbf24] leading-none">
-                    {pipelineCounts.screening}
-                  </span>
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
-                    Screening
-                  </span>
-                </div>
-
-                <div className="pipeline-connector hidden sm:block" />
-
-                <div 
-                  onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
-                >
-                  <span className="font-sans text-3xl font-bold block text-[#a78bfa] leading-none">
-                    {pipelineCounts.interview}
-                  </span>
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
-                    Interview
-                  </span>
-                </div>
-
-                <div className="pipeline-connector hidden sm:block" />
-
-                <div 
-                  onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
-                >
-                  <span className="font-sans text-3xl font-bold block text-[#4ade80] leading-none">
-                    {pipelineCounts.offer}
-                  </span>
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
-                    Offer
-                  </span>
-                </div>
-              </div>
-
-              {/* Board Mode */}
-              {trackingMode === "kanban" && (
-                <KanbanBoard
-                  columns={boardData.columns || []}
-                  onStageChange={handleStageChange}
+        <main className="flex-1 p-4 sm:p-6 md:p-10 max-w-7xl w-full mx-auto">
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            
+            {/* 1. DASHBOARD VIEW */}
+            <Route 
+              path="/dashboard" 
+              element={
+                <DashboardView
+                  boardData={boardData}
+                  pendingDiscoveries={pendingDiscoveries}
+                  consentStatus={consentStatus}
+                  onSwitchView={(v) => navigate(v === "search" ? "/jobs" : `/${v}`)}
                   onOpenDetails={handleOpenDetails}
-                  onToggleLock={handleToggleLock}
-                  onDelete={handleDeleteApplication}
                 />
-              )}
+              } 
+            />
 
-              {/* List Mode */}
-              {trackingMode === "list" && (
-                <ApplicationListView
-                  applications={allApplications}
-                  onOpenDetails={handleOpenDetails}
-                  searchQuery={searchQuery}
+            {/* 2. APPROVALS VIEW */}
+            <Route 
+              path="/approvals" 
+              element={
+                <ApprovalsView
+                  discoveries={pendingDiscoveries}
+                  onAccept={handleAcceptDiscovery}
+                  onDismiss={handleDismissDiscovery}
+                  onSyncMailbox={handleSyncMailbox}
+                  isSyncing={isSyncing}
                 />
-              )}
-            </div>
-          )}
+              } 
+            />
 
-          {/* 4. JOB SEARCH VIEW */}
-          {currentView === "search" && (
-            <JobScraperView onImportJob={loadBoard} />
-          )}
+            {/* 3. TRACKING VIEW */}
+            <Route 
+              path="/tracking" 
+              element={
+                <div className="space-y-6 animate-fadeUp">
+                  {/* Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold font-sans text-[#e8e4dc]">
+                        Application Tracking
+                      </h1>
+                      <p className="text-[#8a94a8] text-xs sm:text-sm mt-1">
+                        Real-time status updates. Tap cards to view details, or drag between stages.
+                      </p>
+                    </div>
+
+                    {/* View Toggle (Board vs List) */}
+                    <div className="inline-flex bg-[#131926] border border-[#253048] rounded-lg overflow-hidden self-start sm:self-auto shadow-sm">
+                      <button
+                        onClick={() => setTrackingMode("kanban")}
+                        className={`px-3.5 py-2 font-mono text-xs flex items-center gap-1.5 transition-colors ${
+                          trackingMode === "kanban"
+                            ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
+                            : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
+                        }`}
+                      >
+                        <Kanban className="w-3.5 h-3.5" />
+                        <span>Board</span>
+                      </button>
+                      <button
+                        onClick={() => setTrackingMode("list")}
+                        className={`px-3.5 py-2 font-mono text-xs flex items-center gap-1.5 border-l border-[#253048] transition-colors ${
+                          trackingMode === "list"
+                            ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
+                            : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
+                        }`}
+                      >
+                        <ListFilter className="w-3.5 h-3.5" />
+                        <span>List</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Shared Pipeline Bar */}
+                  <div className="flex items-center gap-1 p-3 sm:p-5 bg-[#131926] border border-[#253048] rounded-xl overflow-x-auto shadow-sm">
+                    <div 
+                      onClick={() => setTrackingMode("list")}
+                      className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
+                    >
+                      <span className="font-sans text-2xl sm:text-3xl font-bold block text-[#60a5fa] leading-none">
+                        {pipelineCounts.applied}
+                      </span>
+                      <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                        Applied
+                      </span>
+                    </div>
+
+                    <div className="pipeline-connector hidden sm:block" />
+
+                    <div 
+                      onClick={() => setTrackingMode("list")}
+                      className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
+                    >
+                      <span className="font-sans text-2xl sm:text-3xl font-bold block text-[#fbbf24] leading-none">
+                        {pipelineCounts.screening}
+                      </span>
+                      <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                        Screening
+                      </span>
+                    </div>
+
+                    <div className="pipeline-connector hidden sm:block" />
+
+                    <div 
+                      onClick={() => setTrackingMode("list")}
+                      className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
+                    >
+                      <span className="font-sans text-2xl sm:text-3xl font-bold block text-[#a78bfa] leading-none">
+                        {pipelineCounts.interview}
+                      </span>
+                      <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                        Interview
+                      </span>
+                    </div>
+
+                    <div className="pipeline-connector hidden sm:block" />
+
+                    <div 
+                      onClick={() => setTrackingMode("list")}
+                      className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
+                    >
+                      <span className="font-sans text-2xl sm:text-3xl font-bold block text-[#4ade80] leading-none">
+                        {pipelineCounts.offer}
+                      </span>
+                      <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
+                        Offer
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Board Mode */}
+                  {trackingMode === "kanban" && (
+                    <KanbanBoard
+                      columns={boardData.columns || []}
+                      onStageChange={handleStageChange}
+                      onOpenDetails={handleOpenDetails}
+                      onToggleLock={handleToggleLock}
+                      onDelete={handleDeleteApplication}
+                    />
+                  )}
+
+                  {/* List Mode */}
+                  {trackingMode === "list" && (
+                    <ApplicationListView
+                      applications={allApplications}
+                      onOpenDetails={handleOpenDetails}
+                      searchQuery={searchQuery}
+                    />
+                  )}
+                </div>
+              } 
+            />
+
+            {/* 4. JOB SEARCH & DISCOVERY VIEW */}
+            <Route 
+              path="/jobs" 
+              element={<JobScraperView onImportJob={loadBoard} />} 
+            />
+            <Route 
+              path="/discover" 
+              element={<Navigate to="/jobs" replace />} 
+            />
+
+            {/* Fallback to Dashboard */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </main>
       </div>
+
+      {/* ============================================
+          MOBILE BOTTOM NAVIGATION BAR
+          ============================================ */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#131926]/95 backdrop-blur-lg border-t border-[#253048] flex items-center justify-around py-1.5 px-2 md:hidden shadow-2xl safe-bottom">
+        <NavLink to="/dashboard" className={bottomNavLinkClass}>
+          <LayoutGrid className="w-4 h-4 mb-0.5" />
+          <span>Dashboard</span>
+        </NavLink>
+
+        <NavLink to="/tracking" className={bottomNavLinkClass}>
+          <Kanban className="w-4 h-4 mb-0.5" />
+          <span>Tracking</span>
+        </NavLink>
+
+        <NavLink to="/approvals" className={bottomNavLinkClass}>
+          <div className="relative mb-0.5">
+            <Bell className="w-4 h-4" />
+            {pendingDiscoveries.length > 0 && (
+              <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-[#d4a853] text-[#080b12] text-[8px] font-bold flex items-center justify-center">
+                {pendingDiscoveries.length}
+              </span>
+            )}
+          </div>
+          <span>Approvals</span>
+        </NavLink>
+
+        <NavLink to="/jobs" className={bottomNavLinkClass}>
+          <Search className="w-4 h-4 mb-0.5" />
+          <span>Jobs</span>
+        </NavLink>
+      </nav>
 
       {/* ============================================
           MODALS & DRAWERS
