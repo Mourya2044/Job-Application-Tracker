@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import FRONTEND_URL
 from app.db.database import init_db
 from app.routers.applications import router as applications_router
 from app.routers.mailbox import router as mailbox_router
@@ -65,25 +66,24 @@ def root(request: Request):
         "sync_mode": "pubsub_webhook",
         "docs_url": "/docs",
         "health_url": "/health",
-        "ui_url": "/ui",
     }
     if "text/html" in accept and "application/json" not in accept:
         return HTMLResponse(
-            content="""<!DOCTYPE html>
+            content=f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Job Tracker Backend API</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-        .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 540px; width: 100%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
-        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; border-radius: 9999px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
-        h1 { margin: 0 0 8px 0; font-size: 24px; font-weight: 700; color: #ffffff; }
-        p { margin: 0 0 24px 0; color: #94a3b8; font-size: 14px; line-height: 1.5; }
-        .links { display: flex; flex-direction: column; gap: 10px; }
-        .btn { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #334155; color: #f8fafc; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }}
+        .card {{ background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; max-width: 540px; width: 100%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }}
+        .badge {{ display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; border-radius: 9999px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }}
+        .dot {{ width: 8px; height: 8px; border-radius: 50%; background: #10b981; }}
+        h1 {{ margin: 0 0 8px 0; font-size: 24px; font-weight: 700; color: #ffffff; }}
+        p {{ margin: 0 0 24px 0; color: #94a3b8; font-size: 14px; line-height: 1.5; }}
+        .links {{ display: flex; flex-direction: column; gap: 10px; }}
+        .btn {{ display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #334155; color: #f8fafc; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.2s; }}
         .btn:hover {{ background: #475569; transform: translateY(-1px); }}
         .btn-primary {{ background: #6366f1; color: white; }}
         .btn-primary:hover {{ background: #4f46e5; }}
@@ -91,14 +91,13 @@ def root(request: Request):
 </head>
 <body>
     <div class="card">
-        <div class="badge"><div class="dot"></div> System Online & Background Worker Active</div>
+        <div class="badge"><div class="dot"></div> System Online & Webhook Active</div>
         <h1>🚀 Job Tracker Backend</h1>
         <p>FastAPI microservice for job application tracking, automated Gmail status sync, and multi-tier ATS scraping.</p>
         <div class="links">
             <a href="/docs" class="btn btn-primary"><span>📖 Interactive Swagger API Docs</span> <span>/docs →</span></a>
             <a href="/health" class="btn"><span>🩺 API Health Status</span> <span>/health →</span></a>
-            <a href="/ui" class="btn"><span>🎛️ Gradio Status Widget</span> <span>/ui →</span></a>
-            <a href="https://job-application-tracker-one-ruddy.vercel.app" target="_blank" class="btn"><span>🌐 Vercel Web Dashboard</span> <span>External ↗</span></a>
+            <a href="{FRONTEND_URL}" target="_blank" class="btn"><span>🌐 Web Dashboard</span> <span>{FRONTEND_URL} ↗</span></a>
         </div>
     </div>
 </body>

@@ -14,7 +14,6 @@ from app.db.models import (
 )
 from app.schemas.application import ApplicationRead
 from app.schemas.job import (
-    AtsScrapeRequest,
     ImportScrapedJobPayload,
     SavedJobCreate,
     SavedJobRead,

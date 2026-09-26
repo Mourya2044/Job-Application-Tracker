@@ -4,21 +4,16 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
-from bs4 import BeautifulSoup
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session
 
-from app.config import CREDENTIALS_FILE, TOKEN_FILE, GMAIL_SCOPES, GMAIL_PUBSUB_TOPIC
+from app.config import TOKEN_FILE, GMAIL_SCOPES, GMAIL_PUBSUB_TOPIC
 from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
 from app.services.change_tracker import apply_auto_stage_change
 from app.services.consent_manager import (
     get_or_create_consent,
     is_sync_authorized,
-    get_client_config,
     get_current_credentials,
 )
 from app.services.resolver import resolve_application_match

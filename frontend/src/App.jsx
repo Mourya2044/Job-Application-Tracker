@@ -13,11 +13,8 @@ import { AddApplicationModal } from "@/components/board/AddApplicationModal"
 import { JobScraperView } from "@/components/jobs/JobScraperView"
 import { 
   Bell, 
-  TrendingUp, 
   Search, 
   Mail, 
-  Kanban, 
-  ListFilter, 
   Plus, 
   RefreshCw, 
   Sparkles, 
@@ -26,7 +23,6 @@ import {
   MoreVertical, 
   X,
   LayoutGrid,
-  Lock,
   LogOut
 } from "lucide-react"
 import {

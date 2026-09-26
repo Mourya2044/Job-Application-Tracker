@@ -1,19 +1,10 @@
 import logging
-from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
 
 from app.db.database import get_db, init_db
-from app.db.models import (
-    Application,
-    ApplicationStatusEvent,
-    EmailLog,
-    LifecycleStage,
-    TriggerSource,
-    utc_now,
-)
+from app.db.models import Application, ApplicationStatusEvent, TriggerSource, utc_now
 from app.schemas.application import (
     ApplicationCreate,
     ApplicationRead,

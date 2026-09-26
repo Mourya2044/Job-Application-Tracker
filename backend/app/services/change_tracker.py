@@ -1,5 +1,4 @@
 import json
-from datetime import datetime, timezone
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -12,7 +11,6 @@ from app.db.models import (
     utc_now,
 )
 from app.schemas.application import (
-    ApplicationStageUpdate,
     KanbanBoardResponse,
     StageGroup,
     ApplicationRead,

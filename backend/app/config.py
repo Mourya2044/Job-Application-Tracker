@@ -26,9 +26,6 @@ if raw_db_url:
 else:
     DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
 CREDENTIALS_FILE = BASE_DIR / "credentials.json"
 TOKEN_FILE = BASE_DIR / "token.json"
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]

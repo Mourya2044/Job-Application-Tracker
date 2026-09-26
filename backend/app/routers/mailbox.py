@@ -1,11 +1,9 @@
+import base64
 import json
 import logging
 import os
 import uuid
 from datetime import datetime, timezone
-
-logger = logging.getLogger(__name__)
-import base64
 from urllib.parse import quote
 from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
@@ -16,14 +14,13 @@ from sqlalchemy import desc
 
 from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI, GMAIL_PUBSUB_TOPIC, FRONTEND_URL
 from app.db.database import get_db, SessionLocal
-from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
+from app.db.models import Application, EmailLog, UserMailboxConsent, utc_now
 from app.schemas.consent import MailboxConsentRead, MailboxConsentUpdate
 from app.schemas.application import ApplicationRead
 from app.services.change_tracker import apply_auto_stage_change
 from app.services.consent_manager import (
     get_or_create_consent,
     grant_consent,
-    is_sync_authorized,
     perform_google_login,
     revoke_consent,
     get_google_auth_url,
@@ -33,12 +30,13 @@ from app.services.consent_manager import (
 )
 
 from app.services.mailbox_sync import (
-
     sync_mailbox_events,
     sync_mailbox_history_events,
 )
 from app.services.resolver import resolve_application_match
 from app.services.status_extractor import extract_email_status_event
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/mailbox", tags=["mailbox"])
 
