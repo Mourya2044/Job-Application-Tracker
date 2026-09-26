@@ -48,3 +48,11 @@ pnpm-debug.log*
 Thumbs.db
 desktop.ini
 
+# Agents & Customizations
+.agents/
+skills-lock.json
+
+# Scratch & Exploration
+archive/legacy_files/hfclassifier.py
+
+

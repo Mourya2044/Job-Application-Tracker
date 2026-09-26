@@ -13,3 +13,5 @@ pytest
 psycopg2-binary
 httpx
 gradio
+onnxruntime
+gliner2

@@ -75,8 +75,9 @@ export default {
         }
       },
       fontFamily: {
-        serif: ['"Playfair Display"', 'Georgia', 'serif'],
-        body: ['Lora', 'Georgia', 'serif'],
+        sans: ['Outfit', 'sans-serif'],
+        serif: ['Outfit', 'sans-serif'],
+        body: ['Outfit', 'sans-serif'],
         mono: ['"DM Mono"', 'Courier New', 'monospace'],
       },
       borderRadius: {

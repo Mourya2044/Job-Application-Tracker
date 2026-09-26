@@ -1,29 +1,37 @@
 import logging
 import re
+import warnings
 from typing import Optional
 from bs4 import BeautifulSoup
-from langchain_openai import ChatOpenAI
-from langchain_core.exceptions import OutputParserException
 
-from app.config import OPENAI_API_KEY, OPENAI_MODEL
 from app.db.models import LifecycleStage
 from app.schemas.email_event import ParsedEmailEvent
 
 logger = logging.getLogger(__name__)
 
-# Initialize model if API key is present
-llm_model = None
-structured_extractor = None
+# Suppress harmless runtime & future warnings during GLiNER2 execution
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-if OPENAI_API_KEY:
-    try:
-        llm_model = ChatOpenAI(model=OPENAI_MODEL, api_key=OPENAI_API_KEY, temperature=0.0)
-        structured_extractor = llm_model.with_structured_output(ParsedEmailEvent, method="json_schema")
-    except Exception as e:
-        logger.warning("Could not initialize OpenAI structured extractor: %s", e)
+# Lazily initialized GLiNER2 extractor
+_gliner_model = None
 
 
-# Known non-job senders & keywords to discard instantly with ZERO API calls
+def get_gliner_model():
+    """Lazily load GLiNER2 model on first extraction request."""
+    global _gliner_model
+    if _gliner_model is None:
+        try:
+            from gliner2 import GLiNER2
+            _gliner_model = GLiNER2.from_pretrained("fastino/gliner2-multi-v1")
+            logger.info("GLiNER2 multi-v1 model loaded successfully.")
+        except Exception as e:
+            logger.error("Could not initialize GLiNER2 model: %s", e)
+            _gliner_model = False
+    return _gliner_model if _gliner_model is not False else None
+
+
+# Known non-job senders & keywords to discard instantly with ZERO model calls
 NOISE_SENDER_PATTERNS = [
     r"uber\.com", r"amazon\.(?!jobs)", r"paypal\.com", r"netflix\.com",
     r"github\.com", r"medium\.com", r"swiggy", r"zomato", r"doordash", r"instacart",
@@ -51,6 +59,10 @@ POSITIVE_JOB_SIGNALS = [
 RECRUITMENT_SENDER_KEYWORDS = [
     "career", "recruit", "talent", "job", "hr@", "greenhouse", "lever", "workday", "ashby", "hackerrank", "codesignal"
 ]
+
+COMMON_EMAIL_PROVIDERS = (
+    "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com"
+)
 
 
 def is_obvious_noise(subject: str, sender: str) -> bool:
@@ -80,7 +92,7 @@ def has_job_signals(subject: str, sender: str, body_preview: str) -> bool:
     return False
 
 
-def sanitize_and_trim_body(raw_body: str, max_chars: int = 1200) -> str:
+def sanitize_and_trim_body(raw_body: str, max_chars: int = 1500) -> str:
     if not raw_body:
         return ""
     if "<html" in raw_body.lower() or "<div" in raw_body.lower() or "<p" in raw_body.lower():
@@ -91,9 +103,13 @@ def sanitize_and_trim_body(raw_body: str, max_chars: int = 1200) -> str:
     else:
         clean = raw_body.strip()
 
-    # Strip out repetitive legal footer disclaimers & unsubscribe noise to save tokens
-    clean = re.split(r"(?:Unsubscribe|This email was sent to|Privacy Policy|View email in browser|CONFIDENTIALITY NOTICE)", clean, flags=re.IGNORECASE)[0]
-    
+    # Strip out repetitive legal footer disclaimers & unsubscribe noise
+    clean = re.split(
+        r"(?:Unsubscribe|This email was sent to|Privacy Policy|View email in browser|CONFIDENTIALITY NOTICE)",
+        clean,
+        flags=re.IGNORECASE,
+    )[0]
+
     # Compress multi-newlines & trim
     clean = re.sub(r"\n\s*\n+", "\n\n", clean).strip()
     return clean[:max_chars]
@@ -103,163 +119,135 @@ def sanitize_email_body(raw_body: str) -> str:
     return sanitize_and_trim_body(raw_body)
 
 
-
-def heuristic_extract_status(subject: str, body: str) -> ParsedEmailEvent:
-    text = f"{subject}\n{body}".lower()
-
-    # Rejection heuristics
-    rejection_keywords = [
-        "thank you for your interest",
-        "unfortunately",
-        "not moving forward",
-        "pursue other candidates",
-        "we have decided to proceed with other",
-        "not selected for an interview",
-        "decided not to advance",
-        "will not be moving forward",
-    ]
-    if any(kw in text for kw in rejection_keywords):
-        return ParsedEmailEvent(
-            is_job_related=True,
-            event_category="rejection",
-            target_lifecycle_stage=LifecycleStage.REJECTED,
-            confidence=0.92,
-            action_required=False,
-            summary_sentence="Application not moving forward.",
-        )
-
-    # Offer heuristics
-    offer_keywords = [
-        "offer letter",
-        "congratulations on your offer",
-        "pleased to offer you",
-        "formal offer",
-        "offer of employment",
-        "compensation package",
-    ]
-    if any(kw in text for kw in offer_keywords):
-        return ParsedEmailEvent(
-            is_job_related=True,
-            event_category="offer_received",
-            target_lifecycle_stage=LifecycleStage.OFFER,
-            confidence=0.95,
-            action_required=True,
-            action_deadline="Review offer terms",
-            summary_sentence="Formal job offer received.",
-        )
-
-    # Interview heuristics
-    interview_keywords = [
-        "invitation to interview",
-        "schedule an interview",
-        "schedule your interview",
-        "interview confirmation",
-        "technical round",
-        "hiring manager screen",
-        "phone interview",
-        "onsite interview",
-        "next round of interviews",
-        "calendly.com",
-        "zoom.us/j",
-        "teams.microsoft.com",
-        "meet.google.com",
-    ]
-    if any(kw in text for kw in interview_keywords):
-        link_match = re.search(r"https?://(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com|calendly\.com)/[^\s>]+", body)
-        meeting_url = link_match.group(0) if link_match else None
-        
-        return ParsedEmailEvent(
-            is_job_related=True,
-            event_category="interview_invite",
-            target_lifecycle_stage=LifecycleStage.INTERVIEWING,
-            confidence=0.90,
-            action_required=True,
-            meeting_link=meeting_url,
-            summary_sentence="Interview invitation or schedule update received.",
-        )
-
-    # Assessment / OA heuristics
-    oa_keywords = [
-        "online assessment",
-        "hackerrank",
-        "codesignal",
-        "codility",
-        "take-home challenge",
-        "coding challenge",
-        "technical assessment",
-        "complete the assessment",
-        "testgorilla",
-    ]
-    if any(kw in text for kw in oa_keywords):
-        return ParsedEmailEvent(
-            is_job_related=True,
-            event_category="assessment_invite",
-            target_lifecycle_stage=LifecycleStage.SCREENING,
-            confidence=0.92,
-            action_required=True,
-            action_deadline="Complete assessment within given window",
-            summary_sentence="Online coding assessment / test received.",
-        )
-
-    # Application confirmation heuristics
-    confirmation_keywords = [
-        "thank you for applying",
-        "we have received your application",
-        "application submitted",
-        "application received",
-        "confirming your application",
-        "your application for",
-    ]
-    if any(kw in text for kw in confirmation_keywords):
-        return ParsedEmailEvent(
-            is_job_related=True,
-            event_category="application_confirmation",
-            target_lifecycle_stage=LifecycleStage.APPLIED,
-            confidence=0.88,
-            action_required=False,
-            summary_sentence="Application confirmation received.",
-        )
-
-    return ParsedEmailEvent(
-        is_job_related=False,
-        event_category="other_unrelated",
-        confidence=0.1,
-    )
-
-
 def extract_email_status_event(subject: str, raw_body: str, sender: str = "") -> ParsedEmailEvent:
-    # 1. Tier 1: Fast Noise Filter (0 API calls, 0 cost)
+    """
+    Classifies an incoming email and extracts structured job application event data
+    using exclusively the local GLiNER2 zero-shot model.
+    """
+    # 1. Tier 1: Fast Noise Filter (0 model calls)
     if is_obvious_noise(subject, sender):
         return ParsedEmailEvent(is_job_related=False, event_category="other_unrelated", confidence=0.0)
 
-    # Clean & compress body (save tokens)
-    clean_body = sanitize_and_trim_body(raw_body, max_chars=1200)
+    # Clean & compress body
+    clean_body = sanitize_and_trim_body(raw_body, max_chars=1500)
 
     # 2. Tier 2: Check for positive hiring/job signals
-    if not has_job_signals(subject, sender, clean_body[:300]):
+    if not has_job_signals(subject, sender, clean_body[:400]):
         return ParsedEmailEvent(is_job_related=False, event_category="other_unrelated", confidence=0.0)
 
-    # 3. Tier 3: Call LLM ONLY for genuine job candidate emails with compressed token payload
-    if structured_extractor:
-        prompt = f"""Classify this job application email. Extract company, role, stage (applied, screening, interviewing, offer, rejected), confidence (0.0-1.0), and interview dates/links if any.
+    # Extract company domain from sender address if applicable
+    company_domain = None
+    if sender:
+        domain_match = re.search(r"@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", sender)
+        if domain_match:
+            candidate_domain = domain_match.group(1).lower()
+            if candidate_domain not in COMMON_EMAIL_PROVIDERS:
+                company_domain = candidate_domain
 
-Sender: {sender}
-Subject: {subject}
-Body:
-{clean_body}"""
-        try:
-            result = structured_extractor.invoke(prompt)
-            if isinstance(result, ParsedEmailEvent):
-                return result
-        except OutputParserException as ope:
-            logger.warning("Structured parser failed: %s", ope)
-        except Exception as e:
-            logger.warning("LLM extraction error: %s. Falling back to heuristics.", e)
+    # 3. Model Extraction via GLiNER2
+    model = get_gliner_model()
+    if not model:
+        logger.error("GLiNER2 model is not loaded.")
+        return ParsedEmailEvent(is_job_related=False, event_category="other_unrelated", confidence=0.0)
 
-    # Fallback to rule-based heuristics
-    event = heuristic_extract_status(subject, clean_body)
-    if event.is_job_related and not event.company_name:
-        match = re.search(r"(?:at|with|from|to)\s+([A-Z][A-Za-z0-9\s&]+?)(?:\s+for|\s+-\s+|\s*\(|$)", subject)
-        if match:
-            event.company_name = match.group(1).strip()
-    return event
+    try:
+        email_text = f"From: {sender}\nSubject: {subject}\n\n{clean_body}"
+
+        # Unified Schema Extraction (Entities + Lifecycle Stage) in a single forward pass
+        schema = (
+            model.create_schema()
+            .entities({
+                "company": "Company Name",
+                "applied_role": "Job role or position applied for by the candidate",
+                "recruiter_title": "Title or role of the recruiter or sender in the signature",
+                "next_step": "Next hiring step or action required",
+                "interview_date": "Interview date or scheduling deadline",
+                "interview_time": "Interview time or duration",
+                "meeting_link": "Calendly, Google Meet, Zoom, or scheduling link",
+            })
+            .classification("status", ["applied", "screening", "interviewing", "offer", "rejected"])
+        )
+
+        extraction = model.extract(email_text, schema)
+        entities = extraction.get("entities", {})
+
+        # Safe entity extraction helper
+        def get_first_entity(k: str) -> Optional[str]:
+            vals = entities.get(k)
+            if isinstance(vals, list) and len(vals) > 0:
+                return vals[0]
+            return None
+
+        # Extract primary entities from model output
+        company_name = get_first_entity("company")
+        role_title = get_first_entity("applied_role")
+        meeting_link = get_first_entity("meeting_link")
+        interview_date = get_first_entity("interview_date")
+        interview_time = get_first_entity("interview_time")
+        raw_status = extraction.get("status", "applied")
+
+        # Check if this is an online assessment (OA)
+        oa_keywords = [
+            "assessment", "hackerrank", "codesignal", "codility",
+            "testgorilla", "take-home", "coding challenge", "technical assessment"
+        ]
+        is_oa = any(kw in email_text.lower() for kw in oa_keywords)
+
+        # Map GLiNER status to schema EVENT_CATEGORIES & DB LifecycleStage
+        if is_oa and raw_status in ("applied", "screening"):
+            event_category = "assessment_invite"
+            stage = LifecycleStage.SCREENING
+            action_required = True
+            action_deadline = interview_date or "Complete assessment within given window"
+        elif raw_status == "screening":
+            event_category = "interview_invite"
+            stage = LifecycleStage.SCREENING
+            action_required = True
+            action_deadline = interview_date
+        elif raw_status == "interviewing":
+            event_category = "interview_invite"
+            stage = LifecycleStage.INTERVIEWING
+            action_required = True
+            action_deadline = interview_date
+        elif raw_status == "offer":
+            event_category = "offer_received"
+            stage = LifecycleStage.OFFER
+            action_required = True
+            action_deadline = "Review offer terms"
+        elif raw_status == "rejected":
+            event_category = "rejection"
+            stage = LifecycleStage.REJECTED
+            action_required = False
+            action_deadline = None
+        else:  # applied
+            event_category = "application_confirmation"
+            stage = LifecycleStage.APPLIED
+            action_required = False
+            action_deadline = None
+
+        interview_date_time = (
+            f"{interview_date} at {interview_time}"
+            if (interview_date and interview_time)
+            else (interview_date or interview_time)
+        )
+
+        summary = f"{event_category.replace('_', ' ').capitalize()} for {role_title or 'position'} at {company_name or 'Company'}."
+
+        return ParsedEmailEvent(
+            is_job_related=True,
+            event_category=event_category,
+            company_name=company_name,
+            company_domain=company_domain,
+            role_title=role_title,
+            target_lifecycle_stage=stage,
+            confidence=0.95,
+            action_required=action_required,
+            action_deadline=action_deadline,
+            interview_date_time=interview_date_time,
+            meeting_link=meeting_link,
+            summary_sentence=summary,
+        )
+
+    except Exception as e:
+        logger.error("GLiNER2 extraction failed: %s", e)
+        return ParsedEmailEvent(is_job_related=False, event_category="other_unrelated", confidence=0.0)

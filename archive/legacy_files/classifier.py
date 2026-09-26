@@ -1,61 +1,122 @@
-import logging
-from typing import Literal, Optional
+import warnings
+import json
+from gliner2 import GLiNER2
 
-from langchain_core.exceptions import OutputParserException
-from pydantic import BaseModel, Field
+# Suppress harmless runtime & future warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-from ai import model
-
-logger = logging.getLogger(__name__)
-
-CATEGORIES = Literal[
-    "application_confirmation",
-    "assessment",
-    "interview",
-    "offer",
-    "rejection",
-    "recruiter_outreach",
-    "other",
-]
+model = GLiNER2.from_pretrained("fastino/gliner2-multi-v1")
 
 
-class EmailClassification(BaseModel):
-    is_relevant: bool = Field(
-        description="True if this email is relevant to someone applying for jobs "
-        "(application confirmations, online assessments, interview invites/updates, "
-        "offers, rejections, recruiter outreach, etc). False for anything else "
-        "(newsletters, promotions, receipts, unrelated personal/work mail)."
+def parse_job_email(email_text: str) -> dict:
+    """
+    Classifies and extracts structured data from an email according to GLiNER2 documentation.
+    Step 1: Gatekeeper classification (job vs non-job)
+    Step 2: Unified schema extraction (entities + status classification)
+    """
+    # 1. Gatekeeper Classification
+    type_res = model.classify_text(
+        email_text,
+        {
+            "email_type": [
+                "job application or recruitment email",
+                "non-job email"
+            ]
+        }
     )
-    category: Optional[CATEGORIES] = Field(
-        default=None, description="The kind of job-related email, if is_relevant is true."
+    email_type = type_res.get("email_type")
+
+    if email_type != "job application or recruitment email":
+        return {
+            "is_job_related": False,
+            "email_type": email_type,
+            "data": None
+        }
+
+    # 2. Unified Schema: Entities + Status in a single pass
+    # Using 'recruiter_title' alongside 'applied_role' ensures GLiNER2
+    # accurately disambiguates the candidate's target job from the sender's sign-off.
+    schema = (
+        model.create_schema()
+        .entities({
+            "company": "Company Name",
+            "applied_role": "Job role or position applied for by the candidate",
+            "recruiter_title": "Title or role of the recruiter or sender in the signature",
+            "next_step": "Next hiring step or action required",
+            "interview_date": "Interview date or scheduling deadline",
+            "interview_time": "Interview time or duration",
+            "meeting_link": "Calendly, Google Meet, Zoom, or scheduling link"
+        })
+        .classification("status", ["applied", "screening", "interviewing", "offer", "rejected"])
     )
-    company: Optional[str] = Field(
-        default=None, description="Company associated with the email, if any."
-    )
-    role: Optional[str] = Field(
-        default=None, description="Job role/title associated with the email, if any."
-    )
+
+    extraction = model.extract(email_text, schema)
+
+    return {
+        "is_job_related": True,
+        "email_type": email_type,
+        "status": extraction.get("status"),
+        "entities": extraction.get("entities", {})
+    }
 
 
-classifier_model = model.with_structured_output(EmailClassification, method="json_schema")
+# ==========================================
+# Test Samples
+# ==========================================
 
+email_stripe = """
+from: no-reply@stripe.com
 
-def classify_email(email: dict) -> EmailClassification:
-    prompt = f"""
-Classify whether the following email is relevant to someone applying for jobs
-(e.g. application confirmation, online assessment, interview invite/update,
-offer, rejection, recruiter outreach). Anything else is not relevant.
+Subject: Next Steps in Your Application - Backend Software Engineer
 
-Subject: {email.get('subject', '')}
+Hi Mourya,
 
-Body:
-{email.get('body', '')}
+Thank you for applying for the Backend Software Engineer position at Stripe.
+
+We have reviewed your application and would like to move forward with an
+initial recruiter screening call. Please use the link below to select a
+30-minute slot that works for you:
+
+https://calendly.com/stripe-recruiting/initial-screen
+
+The screening call will be held with a member of our Talent Acquisition team.
+Please complete the scheduling by September 29, 2026.
+
+If you have any questions, feel free to reply to this email.
+
+Best regards,
+Sarah Chen
+Technical Recruiter
+Stripe
 """
-    try:
-        return classifier_model.invoke(prompt)  # type: ignore[return-value]
-    except OutputParserException:
-        logger.warning(
-            "Classifier returned a non-JSON response for email %s; treating as not relevant.",
-            email.get("id"),
-        )
-        return EmailClassification(is_relevant=False)
+
+email_amazon = """
+Subject: Your Amazon Order Has Been Shipped
+
+Hi Mourya,
+
+Good news! Your order from Amazon has been shipped and is on its way.
+
+Order #114-7283941-5827364
+
+Expected delivery: October 2, 2026.
+
+You can track your package here:
+https://www.amazon.in/gp/your-account/order-details
+
+Please make sure someone is available to receive the package.
+
+Thank you for shopping with Amazon.
+"""
+
+if __name__ == "__main__":
+    print("\n--- Testing Stripe Job Email ---")
+    result_stripe = parse_job_email(email_stripe)
+    print(json.dumps(result_stripe, indent=2))
+
+    print("\n--- Testing Amazon Order Email ---")
+    result_amazon = parse_job_email(email_amazon)
+    print(json.dumps(result_amazon, indent=2))
+
+

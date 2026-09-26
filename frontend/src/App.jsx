@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Toaster, toast } from "sonner"
 import { fetchApi } from "@/config/api"
 import { KanbanBoard } from "@/components/board/KanbanBoard"
@@ -53,13 +53,14 @@ export default function App() {
   const [currentView, setCurrentView] = useState("dashboard") // dashboard, approvals, tracking, search
   const [trackingMode, setTrackingMode] = useState("kanban") // kanban, list
 
+  const prevUpdatesRef = useRef(null)
+
   useEffect(() => {
     // Check for OAuth redirect return params (?oauth=success or ?oauth=error)
     const urlParams = new URLSearchParams(window.location.search)
     if (urlParams.get("oauth") === "success") {
       toast.success("Google Account successfully connected!")
       loadConsentStatus()
-      setIsLoggedIn(true)
       const cleanUrl = window.location.pathname + (window.location.hash || "")
       window.history.replaceState({}, document.title, cleanUrl)
     } else if (urlParams.get("oauth") === "error") {
@@ -78,16 +79,15 @@ export default function App() {
       try {
         const data = await fetchApi("/api/mailbox/status")
         if (data) {
-          setConsentStatus(prev => {
-            const prevUpdates = prev?.background_sync?.total_updates_detected || 0
-            const newUpdates = data?.background_sync?.total_updates_detected || 0
-            if (newUpdates > prevUpdates) {
-              loadBoard()
-              loadPendingDiscoveries()
-              toast.info(`Background Mailbox Sync: ${newUpdates - prevUpdates} status update(s) detected!`)
-            }
-            return data
-          })
+          const newUpdates = data?.background_sync?.total_updates_detected || 0
+          
+          if (prevUpdatesRef.current !== null && newUpdates > prevUpdatesRef.current) {
+            loadBoard()
+            loadPendingDiscoveries()
+            toast.info(`Background Mailbox Sync: ${newUpdates - prevUpdatesRef.current} status update(s) detected!`)
+          }
+          prevUpdatesRef.current = newUpdates
+          setConsentStatus(data)
         }
       } catch {
         // ignore background poll errors
@@ -110,6 +110,9 @@ export default function App() {
   const loadConsentStatus = async () => {
     try {
       const data = await fetchApi("/api/mailbox/status")
+      if (prevUpdatesRef.current === null) {
+        prevUpdatesRef.current = data?.background_sync?.total_updates_detected || 0
+      }
       setConsentStatus(data)
     } catch (err) {
       console.error("Failed to load consent status:", err)
@@ -286,13 +289,32 @@ export default function App() {
     }
   }
 
-  const handleLoginClick = () => {
-    setIsSigningIn(true)
-    setTimeout(() => {
-      setIsLoggedIn(true)
-      setIsSigningIn(false)
-      toast.success("Signed in to Hired.")
-    }, 800)
+  const handleConnectGoogle = async () => {
+    try {
+      const res = await fetchApi("/api/mailbox/connect-google", { method: "POST" })
+      if (res?.auth_url) {
+        window.location.href = res.auth_url
+        return
+      }
+      setConsentStatus(res)
+      await loadConsentStatus()
+      toast.success(
+        res?.user_email ? `Connected as ${res.user_email}` : "Google Account Connected"
+      )
+    } catch (err) {
+      toast.error(err.message || "Google authentication failed.")
+    }
+  }
+
+  const handleDisconnect = async () => {
+    try {
+      const res = await fetchApi("/api/mailbox/disconnect", { method: "POST" })
+      setConsentStatus(res)
+      await loadConsentStatus()
+      toast.success("Signed out & Google Account disconnected.")
+    } catch (err) {
+      toast.error(err.message || "Could not disconnect account.")
+    }
   }
 
   // Calculate pipeline metrics
@@ -317,7 +339,7 @@ export default function App() {
     : "ME"
 
   return (
-    <div className="min-h-screen bg-[#0c1019] text-[#e8e4dc] font-serif flex">
+    <div className="min-h-screen bg-[#0c1019] text-[#e8e4dc] font-sans flex">
       <Toaster position="bottom-right" richColors theme="dark" />
 
       {/* ============================================
@@ -326,7 +348,7 @@ export default function App() {
       <aside className="fixed left-0 top-0 bottom-0 w-[260px] bg-[#131926] border-r border-[#253048] flex flex-col p-6 pb-5 z-40 hidden md:flex">
         {/* Brand */}
         <div className="px-3 mb-1">
-          <div className="font-serif text-2xl font-bold text-[#d4a853]">
+          <div className="font-sans text-2xl font-bold text-[#d4a853]">
             Hired<span className="opacity-40">.</span>
           </div>
           <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] mt-0.5">
@@ -342,7 +364,7 @@ export default function App() {
 
           <button
             onClick={() => setCurrentView("dashboard")}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
               currentView === "dashboard"
                 ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
                 : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
@@ -354,7 +376,7 @@ export default function App() {
 
           <button
             onClick={() => setCurrentView("approvals")}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
               currentView === "approvals"
                 ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
                 : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
@@ -373,7 +395,7 @@ export default function App() {
 
           <button
             onClick={() => setCurrentView("tracking")}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
               currentView === "tracking"
                 ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
                 : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
@@ -389,7 +411,7 @@ export default function App() {
 
           <button
             onClick={() => setCurrentView("search")}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-serif transition-all ${
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
               currentView === "search"
                 ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold"
                 : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
@@ -432,7 +454,7 @@ export default function App() {
         <header className="sticky top-0 z-30 bg-[#0c1019]/90 backdrop-blur-md border-b border-[#253048] px-6 py-3.5 flex items-center justify-between gap-4">
           {/* Mobile brand & Quick Search */}
           <div className="flex items-center gap-3 flex-1 max-w-md">
-            <div className="font-serif font-bold text-[#d4a853] md:hidden text-lg">
+            <div className="font-sans font-bold text-[#d4a853] md:hidden text-lg">
               Hired.
             </div>
             <div className="relative w-full">
@@ -442,7 +464,7 @@ export default function App() {
                 placeholder="Search company or role..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-8 pl-9 pr-8 bg-[#131926] border border-[#253048] rounded-lg text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853] font-serif"
+                className="w-full h-8 pl-9 pr-8 bg-[#131926] border border-[#253048] rounded-lg text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853] font-sans transition-colors"
               />
               {searchQuery && (
                 <button 
@@ -473,7 +495,7 @@ export default function App() {
             <button
               onClick={handleSyncMailbox}
               disabled={isSyncing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-all active:scale-95 disabled:opacity-50"
               title="Sync Mailbox"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-[#d4a853]" : ""}`} />
@@ -483,7 +505,7 @@ export default function App() {
             {/* Add Application Button */}
             <button
               onClick={() => setIsAddOpen(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] font-mono text-xs font-semibold transition-all shadow-sm hover:-translate-y-0.5"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] font-mono text-xs font-semibold transition-all active:scale-95 shadow-sm hover:-translate-y-0.5"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>New</span>
@@ -511,10 +533,17 @@ export default function App() {
                   Mailbox Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-[#253048]" />
-                <DropdownMenuItem onClick={() => setIsLoggedIn(false)} className="hover:bg-[#1a2235]">
-                  <LogOut className="w-3.5 h-3.5 mr-2 text-[#8a94a8]" />
-                  Switch Account / Sign In
-                </DropdownMenuItem>
+                {isConnected ? (
+                  <DropdownMenuItem onClick={handleDisconnect} className="hover:bg-[#1a2235] text-[#fb7185] focus:text-[#fb7185]">
+                    <LogOut className="w-3.5 h-3.5 mr-2" />
+                    Sign Out & Disconnect
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={handleConnectGoogle} className="hover:bg-[#1a2235] text-[#d4a853] focus:text-[#d4a853]">
+                    <LogOut className="w-3.5 h-3.5 mr-2" />
+                    Connect Google Account
+                  </DropdownMenuItem>
+                )}
                 {allApplications.length > 0 && (
                   <>
                     <DropdownMenuSeparator className="bg-[#253048]" />
@@ -559,7 +588,7 @@ export default function App() {
               {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-3xl sm:text-4xl font-bold font-serif text-[#e8e4dc]">
+                  <h1 className="text-3xl sm:text-4xl font-bold font-sans text-[#e8e4dc]">
                     Application Tracking
                   </h1>
                   <p className="text-[#8a94a8] text-sm mt-1.5">
@@ -598,9 +627,9 @@ export default function App() {
               <div className="flex items-center gap-0 p-6 bg-[#131926] border border-[#253048] rounded-xl overflow-x-auto shadow-sm">
                 <div 
                   onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
                 >
-                  <span className="font-serif text-3xl font-bold block text-[#60a5fa] leading-none">
+                  <span className="font-sans text-3xl font-bold block text-[#60a5fa] leading-none">
                     {pipelineCounts.applied}
                   </span>
                   <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
@@ -612,9 +641,9 @@ export default function App() {
 
                 <div 
                   onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
                 >
-                  <span className="font-serif text-3xl font-bold block text-[#fbbf24] leading-none">
+                  <span className="font-sans text-3xl font-bold block text-[#fbbf24] leading-none">
                     {pipelineCounts.screening}
                   </span>
                   <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
@@ -626,9 +655,9 @@ export default function App() {
 
                 <div 
                   onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
                 >
-                  <span className="font-serif text-3xl font-bold block text-[#a78bfa] leading-none">
+                  <span className="font-sans text-3xl font-bold block text-[#a78bfa] leading-none">
                     {pipelineCounts.interview}
                   </span>
                   <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
@@ -640,9 +669,9 @@ export default function App() {
 
                 <div 
                   onClick={() => { setTrackingMode("list"); }}
-                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-colors min-w-[100px]"
+                  className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[100px]"
                 >
-                  <span className="font-serif text-3xl font-bold block text-[#4ade80] leading-none">
+                  <span className="font-sans text-3xl font-bold block text-[#4ade80] leading-none">
                     {pipelineCounts.offer}
                   </span>
                   <span className="font-mono text-[10px] uppercase tracking-wider text-[#556178] mt-1.5 block">
@@ -707,7 +736,11 @@ export default function App() {
         isOpen={isConsentOpen}
         onClose={() => setIsConsentOpen(false)}
         consentStatus={consentStatus}
-        onConsentUpdated={loadConsentStatus}
+        onGrantConsent={handleConnectGoogle}
+        onDisconnect={handleDisconnect}
+        onSyncMailbox={handleSyncMailbox}
+        isSyncing={isSyncing}
+        onReloadStatus={loadConsentStatus}
       />
 
       <SimulateEmailModal

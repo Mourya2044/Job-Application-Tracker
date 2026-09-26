@@ -227,10 +227,10 @@ def fetch_gmail_user_email(creds: Credentials) -> Optional[str]:
 
 def get_or_create_consent(db: Session) -> UserMailboxConsent:
     consent = db.query(UserMailboxConsent).filter(UserMailboxConsent.provider == "google").first()
-    has_token = bool((consent and consent.refresh_token) or os.path.exists(TOKEN_FILE))
+    has_token = bool((consent and consent.refresh_token) or (os.path.exists(TOKEN_FILE) and os.path.getsize(TOKEN_FILE) > 5))
 
     if not consent:
-        has_file_token = os.path.exists(TOKEN_FILE)
+        has_file_token = os.path.exists(TOKEN_FILE) and os.path.getsize(TOKEN_FILE) > 5
         consent = UserMailboxConsent(
             provider="google",
             consent_given=has_file_token,
@@ -330,7 +330,7 @@ def revoke_consent(db: Session) -> UserMailboxConsent:
 
     token_to_revoke = consent.access_token or consent.refresh_token
 
-    if not token_to_revoke and os.path.exists(TOKEN_FILE):
+    if not token_to_revoke and os.path.exists(TOKEN_FILE) and os.path.getsize(TOKEN_FILE) > 5:
         try:
             with open(TOKEN_FILE, "r") as f:
                 data = json.load(f)
@@ -346,9 +346,11 @@ def revoke_consent(db: Session) -> UserMailboxConsent:
 
     if os.path.exists(TOKEN_FILE):
         try:
+            with open(TOKEN_FILE, "w") as f:
+                f.write("")
             os.remove(TOKEN_FILE)
-        except Exception:
-            pass
+        except Exception as file_err:
+            logger.warning("Failed to remove token file %s: %s", TOKEN_FILE, file_err)
 
     consent.consent_given = False
     consent.is_sync_enabled = False
@@ -367,7 +369,7 @@ def revoke_consent(db: Session) -> UserMailboxConsent:
 def is_sync_authorized(db: Session, consent: Optional[UserMailboxConsent] = None) -> bool:
     if consent is None:
         consent = get_or_create_consent(db)
-    has_creds = bool(consent.refresh_token or os.path.exists(TOKEN_FILE))
+    has_creds = bool(consent.refresh_token or (os.path.exists(TOKEN_FILE) and os.path.getsize(TOKEN_FILE) > 5))
     return bool(consent.consent_given and consent.is_sync_enabled and has_creds)
 
 

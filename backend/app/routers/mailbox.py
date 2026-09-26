@@ -54,10 +54,14 @@ def get_mailbox_status(db: Session = Depends(get_db)):
     """Check mailbox connection status, OAuth permissions, and live sync statistics."""
     try:
         consent = get_or_create_consent(db)
-        has_token = bool(consent.refresh_token or os.path.exists(TOKEN_FILE))
-        consent.consent_given = has_token
-        consent.is_sync_enabled = has_token
-        db.commit()
+        has_token = bool(
+            consent.refresh_token or 
+            (os.path.exists(TOKEN_FILE) and os.path.getsize(TOKEN_FILE) > 5)
+        )
+        if not has_token and consent.consent_given:
+            consent.consent_given = False
+            consent.is_sync_enabled = False
+            db.commit()
 
         total_logs = db.query(EmailLog).count()
         matched_logs = db.query(EmailLog).filter(EmailLog.match_status.in_(["matched_auto", "suggested"])).count()
@@ -91,13 +95,13 @@ def get_mailbox_status(db: Session = Depends(get_db)):
         }
     except Exception as e:
         logger.error("Error retrieving mailbox status: %s", e, exc_info=True)
-        has_file = os.path.exists(TOKEN_FILE)
+        has_file = os.path.exists(TOKEN_FILE) and os.path.getsize(TOKEN_FILE) > 5
         return {
             "id": None,
             "user_email": None,
             "provider": "google",
-            "consent_given": has_file,
-            "is_sync_enabled": has_file,
+            "consent_given": False,
+            "is_sync_enabled": False,
             "auto_create_applications": True,
             "scopes_granted": None,
             "last_synced_at": None,
@@ -329,6 +333,7 @@ def trigger_sync(query: Optional[str] = None, db: Session = Depends(get_db)):
     return result
 
 
+@router.post("/logout", response_model=MailboxConsentRead)
 @router.post("/disconnect", response_model=MailboxConsentRead)
 def disconnect_mailbox(db: Session = Depends(get_db)):
     """Disconnect mailbox, stop Gmail watch, revoke token online, and delete credentials."""
