@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Optional
+from typing import List, Optional
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 

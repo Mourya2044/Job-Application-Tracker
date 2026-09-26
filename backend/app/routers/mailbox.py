@@ -14,13 +14,14 @@ from sqlalchemy import desc
 
 from app.config import TOKEN_FILE, GOOGLE_REDIRECT_URI, GMAIL_PUBSUB_TOPIC, FRONTEND_URL
 from app.db.database import get_db, SessionLocal
-from app.db.models import Application, EmailLog, UserMailboxConsent, utc_now
+from app.db.models import Application, ApplicationStatusEvent, EmailLog, UserMailboxConsent, utc_now
 from app.schemas.consent import MailboxConsentRead, MailboxConsentUpdate
 from app.schemas.application import ApplicationRead
 from app.services.change_tracker import apply_auto_stage_change
 from app.services.consent_manager import (
     get_or_create_consent,
     grant_consent,
+    is_sync_authorized,
     perform_google_login,
     revoke_consent,
     get_google_auth_url,

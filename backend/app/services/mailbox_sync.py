@@ -4,6 +4,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session
