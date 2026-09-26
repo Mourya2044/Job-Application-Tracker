@@ -14,6 +14,7 @@ from app.schemas.application import (
     KanbanBoardResponse,
     StageGroup,
     ApplicationRead,
+    ApplicationStageUpdate,
 )
 from app.schemas.email_event import ParsedEmailEvent
 
