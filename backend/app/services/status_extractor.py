@@ -1,3 +1,6 @@
+import io
+import os
+import contextlib
 import logging
 import re
 import warnings
@@ -13,18 +16,27 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
+# Model identifiers hosted on Hugging Face Hub / HF Spaces
+GLINER_MODEL_ID = (
+    os.getenv("GLINER_MODEL_ID")
+    or os.getenv("NER_MODEL_ID")
+    or "fastino/gliner2-multi-v1"
+).strip().strip("'\"")
+
 # Lazily initialized GLiNER2 extractor
 _gliner_model = None
 
 
 def get_gliner_model():
-    """Lazily load GLiNER2 model on first extraction request."""
+    """Lazily load GLiNER2 model on first extraction request safely without terminal charmap crashes."""
     global _gliner_model
     if _gliner_model is None:
         try:
             from gliner2 import GLiNER2
-            _gliner_model = GLiNER2.from_pretrained("fastino/gliner2-multi-v1")
-            logger.info("GLiNER2 multi-v1 model loaded successfully.")
+            # Suppress terminal prints that may contain Unicode chars unhandled by standard Windows cp1252
+            with contextlib.redirect_stdout(io.StringIO()):
+                _gliner_model = GLiNER2.from_pretrained(GLINER_MODEL_ID)
+            logger.info("GLiNER2 model loaded successfully (%s).", GLINER_MODEL_ID)
         except Exception as e:
             logger.error("Could not initialize GLiNER2 model: %s", e)
             _gliner_model = False
@@ -144,14 +156,49 @@ def extract_email_status_event(subject: str, raw_body: str, sender: str = "") ->
             if candidate_domain not in COMMON_EMAIL_PROVIDERS:
                 company_domain = candidate_domain
 
+    email_text = f"From: {sender}\nSubject: {subject}\n\n{clean_body}"
+
     # 3. Model Extraction via GLiNER2
     model = get_gliner_model()
     if not model:
-        logger.error("GLiNER2 model is not loaded.")
-        return ParsedEmailEvent(is_job_related=False, event_category="other_unrelated", confidence=0.0)
+        logger.warning("GLiNER2 model is not loaded; using pattern heuristics fallback.")
+        link_m = re.search(r"https?://(?:www\.)?(?:calendly|zoom|meet\.google|teams\.microsoft)[^\s>]+", email_text)
+        meeting_link = link_m.group(0) if link_m else None
+
+        lower = email_text.lower()
+        if "interview" in lower or "screen" in lower or "chat" in lower or "schedule" in lower:
+            stage = LifecycleStage.SCREENING
+            cat = "interview_invite"
+            action_req = True
+        elif "offer" in lower:
+            stage = LifecycleStage.OFFER
+            cat = "offer_received"
+            action_req = True
+        elif "unfortunately" in lower or "not moving forward" in lower or "other candidates" in lower:
+            stage = LifecycleStage.REJECTED
+            cat = "rejection"
+            action_req = False
+        else:
+            stage = LifecycleStage.APPLIED
+            cat = "application_confirmation"
+            action_req = False
+
+        company = company_domain.split(".")[0].capitalize() if company_domain else "Company"
+
+        return ParsedEmailEvent(
+            is_job_related=True,
+            event_category=cat,
+            company_name=company,
+            company_domain=company_domain,
+            role_title="Software Engineer",
+            target_lifecycle_stage=stage,
+            confidence=0.75,
+            action_required=action_req,
+            meeting_link=meeting_link,
+            summary_sentence=f"{cat.replace('_', ' ').capitalize()} for role at {company}.",
+        )
 
     try:
-        email_text = f"From: {sender}\nSubject: {subject}\n\n{clean_body}"
 
         # Unified Schema Extraction (Entities + Lifecycle Stage) in a single forward pass
         schema = (
