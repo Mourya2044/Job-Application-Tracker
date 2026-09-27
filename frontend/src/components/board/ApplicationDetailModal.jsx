@@ -602,6 +602,57 @@ export function ApplicationDetailModal({
                       {fitResult.summary}
                     </p>
 
+                    {fitResult.ats_breakdown && (
+                      <div className="bg-[#080b12] border border-[#1a2235] rounded-lg p-3 space-y-2.5">
+                        <div className="flex items-center justify-between text-[11px] font-mono text-[#8a94a8]">
+                          <span>ATS Evaluation Pillars</span>
+                          <span className="text-[#d4a853]">Weighted Multi-Pillar Engine</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          <div className="bg-[#0f1524] rounded p-2 border border-[#253048]/50">
+                            <div className="text-[10px] text-[#8a94a8]">Hard Skills Match</div>
+                            <div className="font-mono text-xs font-bold text-[#4ade80]">{fitResult.ats_breakdown.skills_score}%</div>
+                          </div>
+                          <div className="bg-[#0f1524] rounded p-2 border border-[#253048]/50">
+                            <div className="text-[10px] text-[#8a94a8]">Experience & Level</div>
+                            <div className="font-mono text-xs font-bold text-[#60a5fa]">{fitResult.ats_breakdown.experience_score}%</div>
+                          </div>
+                          <div className="bg-[#0f1524] rounded p-2 border border-[#253048]/50">
+                            <div className="text-[10px] text-[#8a94a8]">Education Match</div>
+                            <div className="font-mono text-xs font-bold text-[#a78bfa]">{fitResult.ats_breakdown.education_score}%</div>
+                          </div>
+                          <div className="bg-[#0f1524] rounded p-2 border border-[#253048]/50">
+                            <div className="text-[10px] text-[#8a94a8]">ATS Format Health</div>
+                            <div className="font-mono text-xs font-bold text-[#fbbf24]">{fitResult.ats_breakdown.formatting_score}%</div>
+                          </div>
+                          <div className="bg-[#0f1524] rounded p-2 border border-[#253048]/50">
+                            <div className="text-[10px] text-[#8a94a8]">Semantic Impact</div>
+                            <div className="font-mono text-xs font-bold text-[#38bdf8]">{fitResult.ats_breakdown.semantic_score}%</div>
+                          </div>
+                        </div>
+
+                        {fitResult.section_checks && (
+                          <div className="pt-2 border-t border-[#1a2235] flex flex-wrap gap-1.5 text-[9px] font-mono">
+                            <span className={`px-1.5 py-0.5 rounded border ${fitResult.section_checks.has_email ? "text-[#4ade80] border-[#4ade80]/30 bg-[#4ade80]/10" : "text-[#fb7185] border-[#fb7185]/30 bg-[#fb7185]/10"}`}>
+                              {fitResult.section_checks.has_email ? "✓ Email" : "✗ Missing Email"}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded border ${fitResult.section_checks.has_phone ? "text-[#4ade80] border-[#4ade80]/30 bg-[#4ade80]/10" : "text-[#fb7185] border-[#fb7185]/30 bg-[#fb7185]/10"}`}>
+                              {fitResult.section_checks.has_phone ? "✓ Phone" : "✗ Missing Phone"}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded border ${fitResult.section_checks.has_experience_section ? "text-[#4ade80] border-[#4ade80]/30 bg-[#4ade80]/10" : "text-[#fb7185] border-[#fb7185]/30 bg-[#fb7185]/10"}`}>
+                              {fitResult.section_checks.has_experience_section ? "✓ Experience Header" : "✗ Missing Experience Header"}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded border ${fitResult.section_checks.has_skills_section ? "text-[#4ade80] border-[#4ade80]/30 bg-[#4ade80]/10" : "text-[#fb7185] border-[#fb7185]/30 bg-[#fb7185]/10"}`}>
+                              {fitResult.section_checks.has_skills_section ? "✓ Skills Header" : "✗ Missing Skills Header"}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded border ${fitResult.section_checks.has_quantified_metrics ? "text-[#4ade80] border-[#4ade80]/30 bg-[#4ade80]/10" : "text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10"}`}>
+                              {fitResult.section_checks.has_quantified_metrics ? "✓ Quantified Metrics" : "⚠️ Needs Metrics"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {fitResult.matching_skills?.length > 0 && (
                       <div>
                         <div className="text-[10px] font-mono uppercase text-[#4ade80] mb-1.5">

@@ -20,9 +20,9 @@ except ImportError:
             return decorator
 
 # Model identifiers hosted on Hugging Face Hub / HF Spaces
-GLINER_MODEL_ID = os.getenv("GLINER_MODEL_ID", "fastino/gliner2-multi-v1")
-SIMILARITY_MODEL_ID = os.getenv("SIMILARITY_MODEL_ID", "sentence-transformers/all-MiniLM-L6-v2")
-GEN_MODEL_ID = os.getenv("AI_ADVISOR_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct")
+GLINER_MODEL_ID = os.getenv("GLINER_MODEL_ID") 
+SIMILARITY_MODEL_ID = os.getenv("SIMILARITY_MODEL_ID") 
+GEN_MODEL_ID = os.getenv("AI_ADVISOR_MODEL")
 
 # Global lazy singletons
 _gliner_model = None
@@ -47,7 +47,7 @@ def get_gliner_model():
 
 
 def get_similarity_model():
-    """Lazily load MiniLM transformer model for semantic embeddings."""
+    """Lazily load MiniLM / BGE transformer model for semantic embeddings."""
     global _sim_tokenizer, _sim_model
     if _sim_model is None:
         try:
@@ -117,7 +117,38 @@ SYNONYM_MAP = {
     "tailwindcss": "Tailwind CSS",
     "next.js": "Next.js",
     "nextjs": "Next.js",
+    "linux": "Linux",
+    "terraform": "Terraform",
+    "ci/cd": "CI/CD",
 }
+
+# Seniority levels and their numeric ranks
+SENIORITY_RANKS = {
+    "intern": 1,
+    "junior": 2,
+    "associate": 2,
+    "entry": 2,
+    "mid": 3,
+    "intermediate": 3,
+    "senior": 4,
+    "sr": 4,
+    "lead": 5,
+    "staff": 6,
+    "principal": 7,
+    "architect": 6,
+    "manager": 5,
+    "director": 7,
+    "head": 7,
+    "vp": 8,
+}
+
+# Action verbs commonly expected by ATS scanners in achievement bullets
+ATS_ACTION_VERBS = [
+    "architected", "engineered", "developed", "built", "implemented", "designed",
+    "optimized", "scaled", "automated", "spearheaded", "deployed", "reduced",
+    "increased", "delivered", "led", "refactored", "orchestrated", "migrated",
+    "resolved", "integrated", "streamlined", "accelerated", "maintained"
+]
 
 
 def _normalize_skill(skill: str) -> str:
@@ -131,7 +162,7 @@ def _normalize_skill(skill: str) -> str:
 def extract_skills_from_text(text: str) -> List[str]:
     """
     Extracts technical skills and qualifications using GLiNER2 zero-shot information extraction.
-    Falls back gracefully if the neural model is not yet cached.
+    Falls back gracefully to token regex heuristics if the neural model is offline.
     """
     if not text or not text.strip():
         return []
@@ -157,7 +188,7 @@ def extract_skills_from_text(text: str) -> List[str]:
         except Exception as e:
             logger.debug("GLiNER2 extraction failed: %s", e)
 
-    # Secondary pattern heuristic to ensure full coverage of common tech tokens
+    # Secondary pattern heuristic to ensure comprehensive coverage
     token_pattern = r"(?i)\b(python|javascript|typescript|golang|go|rust|java|c\+\+|c\#|ruby|sql|react|vue|angular|fastapi|django|flask|node\.js|express|docker|kubernetes|k8s|aws|gcp|azure|postgresql|postgres|mysql|redis|mongodb|graphql|tailwind|next\.js|linux|ci/cd|terraform|git)\b"
     for match in re.finditer(token_pattern, text):
         norm = _normalize_skill(match.group(1))
@@ -347,6 +378,115 @@ def calculate_semantic_similarity(emb1, emb2) -> float:
         return 0.0
 
 
+# ---------------------------------------------------------------------------
+# ATS (Applicant Tracking System) Specialized Evaluators
+# ---------------------------------------------------------------------------
+
+def extract_years_of_experience(text: str) -> Optional[int]:
+    """Extracts explicit years of experience mentioned in text (e.g. '5+ years', '3-5 years')."""
+    pat = r"(\d+)\+?\s*(?:-\s*(\d+)\s*)?(?:years?|yrs?)(?:\s+of)?(?:\s+experience)?"
+    matches = re.findall(pat, text, flags=re.IGNORECASE)
+    if not matches:
+        return None
+    years = []
+    for a, b in matches:
+        try:
+            val = int(b) if b else int(a)
+            if 0 < val <= 40:
+                years.append(val)
+        except Exception:
+            continue
+    return max(years) if years else None
+
+
+def detect_seniority_level(text: str) -> Tuple[str, int]:
+    """Detects highest seniority level present in role or resume."""
+    text_lower = text.lower()
+    highest_title = "mid"
+    highest_rank = 3
+    for title, rank in SENIORITY_RANKS.items():
+        if re.search(rf"\b{title}\b", text_lower):
+            if rank > highest_rank:
+                highest_rank = rank
+                highest_title = title.title()
+    return highest_title, highest_rank
+
+
+def check_ats_formatting_and_sections(text: str) -> Tuple[int, Dict[str, bool]]:
+    """
+    Evaluates ATS parseability: checks for essential contact fields,
+    standard section headers, action verbs, and quantified metrics.
+    """
+    has_email = bool(re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text))
+    has_phone = bool(re.search(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text))
+    has_exp_sec = bool(re.search(r"(?i)\b(work\s+experience|professional\s+experience|employment\s+history|experience)\b", text))
+    has_edu_sec = bool(re.search(r"(?i)\b(education|academic\s+background|degrees?|qualifications?)\b", text))
+    has_skills_sec = bool(re.search(r"(?i)\b(skills|technical\s+skills|technologies|core\s+competencies)\b", text))
+
+    # Check for quantified metrics (e.g., 40%, $2M, 50ms latency, 100k users)
+    has_metrics = bool(re.search(r"\d+%\b|\$\d+|\b\d+\s*(?:ms|seconds|minutes|hours|users|clients|queries|requests|x|fold|tb|gb)\b", text, flags=re.IGNORECASE))
+
+    # Base ATS formatting health score
+    score = 100
+    if not has_email:
+        score -= 15
+    if not has_phone:
+        score -= 10
+    if not has_exp_sec:
+        score -= 15
+    if not has_edu_sec:
+        score -= 10
+    if not has_skills_sec:
+        score -= 15
+    if not has_metrics:
+        score -= 15
+
+    score = max(35, min(100, score))
+
+    checks = {
+        "has_email": has_email,
+        "has_phone": has_phone,
+        "has_experience_section": has_exp_sec,
+        "has_education_section": has_edu_sec,
+        "has_skills_section": has_skills_sec,
+        "has_quantified_metrics": has_metrics,
+    }
+    return score, checks
+
+
+def check_education_alignment(resume_text: str, job_description: str) -> int:
+    """Evaluates degree level and certification match between job and resume."""
+    degree_levels = {
+        "phd": 4, "doctorate": 4,
+        "master": 3, "ms": 3, "m.tech": 3, "mba": 3,
+        "bachelor": 2, "bs": 2, "b.tech": 2, "b.e": 2, "undergraduate": 2
+    }
+
+    job_lower = job_description.lower()
+    res_lower = resume_text.lower()
+
+    req_degree_rank = 1
+    for deg, rank in degree_levels.items():
+        if re.search(rf"\b{deg}\b", job_lower):
+            if rank > req_degree_rank:
+                req_degree_rank = rank
+
+    cand_degree_rank = 1
+    for deg, rank in degree_levels.items():
+        if re.search(rf"\b{deg}\b", res_lower):
+            if rank > cand_degree_rank:
+                cand_degree_rank = rank
+
+    if req_degree_rank <= 1:
+        # Job description does not strictly mandate a specific degree
+        return 90 if cand_degree_rank >= 2 else 75
+    elif cand_degree_rank >= req_degree_rank:
+        return 95
+    else:
+        # Candidate has lower degree tier than explicitly requested
+        return 65
+
+
 @spaces.GPU(duration=60)
 def analyze_resume_fit(
     resume_text: str = "",
@@ -356,12 +496,18 @@ def analyze_resume_fit(
     resume_pdf: Optional[Union[bytes, str]] = None,
 ) -> Dict:
     """
-    Computes a comprehensive match analysis between candidate resume (text or PDF)
-    and job requirements using Hugging Face AI models (GLiNER2 + all-MiniLM-L6-v2 embeddings).
+    ATS (Applicant Tracking System) Scorer and Resume Fit Engine.
+    Evaluates resumes across 5 core ATS pillars:
+      1. Technical Skills & Keywords (35%)
+      2. Experience & Seniority Alignment (20%)
+      3. Education & Credentials (15%)
+      4. ATS Parseability & Formatting Health (15%)
+      5. Semantic Relevance & Impact (15%)
     """
     if resume_pdf is not None and not resume_text:
         resume_text = extract_text_from_pdf(resume_pdf)
 
+    # 1. Pillar 1: Technical Skills & Hard Keywords (Weight: 35%)
     resume_skills = extract_skills_from_text(resume_text)
     job_skills = extract_skills_from_text(job_description)
 
@@ -370,28 +516,22 @@ def analyze_resume_fit(
         if title_skills:
             job_skills.extend(title_skills)
 
-    # 1. Compute Document-level Semantic Similarity
-    emb_resume = compute_semantic_embedding(resume_text)
-    emb_job = compute_semantic_embedding(job_description)
-    doc_similarity = calculate_semantic_similarity(emb_resume, emb_job)
-
-    # 2. Compute Requirement-level Alignment via Dense Similarity
-    matching = []
-    missing = []
-
     candidate_skill_embs = {}
     for cs in resume_skills:
         c_emb = compute_semantic_embedding(cs)
         if c_emb is not None:
             candidate_skill_embs[cs] = c_emb
 
+    matching = []
+    missing = []
+
     for req in job_skills:
-        # Check direct lexical match first
+        # Check direct lexical match
         if any(req.lower() == cs.lower() for cs in resume_skills):
             matching.append(req)
             continue
 
-        # Check semantic embedding match
+        # Check semantic embedding match with threshold 0.65
         req_emb = compute_semantic_embedding(req)
         matched = False
         if req_emb is not None and candidate_skill_embs:
@@ -406,68 +546,131 @@ def analyze_resume_fit(
         else:
             missing.append(req)
 
-    # Extra strengths candidate has that aren't explicit job requirements
     job_skill_lower = {s.lower() for s in job_skills}
     extra_strengths = [s for s in resume_skills if s.lower() not in job_skill_lower][:6]
 
-    # 3. Dynamic AI Match Score Calculation
     if job_skills:
-        coverage_ratio = len(matching) / len(job_skills)
-        sim_factor = max(0.0, doc_similarity)
-        # Weighted blend of semantic alignment (35%) and requirement coverage (65%)
-        raw_score = (0.35 * sim_factor + 0.65 * coverage_ratio) * 65 + 32
-        score = int(min(98, max(38, round(raw_score))))
+        skill_coverage = len(matching) / len(job_skills)
+        skills_score = int(min(100, max(30, round(skill_coverage * 100))))
     else:
-        # Grounded in document embedding similarity
-        sim_factor = max(0.0, doc_similarity)
-        score = int(min(95, max(45, round(sim_factor * 85 + 15))))
+        skills_score = 75
 
-    # Determine fit level
-    if score >= 80:
-        fit_level = "Strong Match"
-    elif score >= 60:
-        fit_level = "Moderate Match"
+    # 2. Pillar 2: Experience & Seniority Alignment (Weight: 20%)
+    cand_years = extract_years_of_experience(resume_text)
+    req_years = extract_years_of_experience(job_description)
+
+    _, req_rank = detect_seniority_level(f"{job_title} {job_description}")
+    _, cand_rank = detect_seniority_level(resume_text)
+
+    if req_years is not None and cand_years is not None:
+        if cand_years >= req_years:
+            exp_ratio = 1.0
+        else:
+            exp_ratio = max(0.4, cand_years / req_years)
+        experience_score = int(round(exp_ratio * 100))
+    elif req_rank and cand_rank:
+        if cand_rank >= req_rank:
+            experience_score = 95
+        else:
+            experience_score = 70
     else:
-        fit_level = "Growth Opportunity"
+        experience_score = 80
 
-    # 4. Generate AI Strategic Preparation Recommendations
+    # 3. Pillar 3: Education & Credentials Alignment (Weight: 15%)
+    education_score = check_education_alignment(resume_text, job_description)
+
+    # 4. Pillar 4: ATS Parseability & Formatting Health (Weight: 15%)
+    formatting_score, section_checks = check_ats_formatting_and_sections(resume_text)
+
+    # 5. Pillar 5: Semantic Relevance & Responsibility Coverage (Weight: 15%)
+    emb_resume = compute_semantic_embedding(resume_text)
+    emb_job = compute_semantic_embedding(job_description)
+    doc_similarity = calculate_semantic_similarity(emb_resume, emb_job)
+    semantic_score = int(min(100, max(35, round(max(0.0, doc_similarity) * 100))))
+
+    # Composite ATS Score (Weighted Multi-Pillar Engine)
+    raw_ats_score = (
+        0.35 * skills_score +
+        0.20 * experience_score +
+        0.15 * education_score +
+        0.15 * formatting_score +
+        0.15 * semantic_score
+    )
+    ats_score = int(min(98, max(35, round(raw_ats_score))))
+
+    # ATS Fit Tiers
+    if ats_score >= 80:
+        fit_level = "Strong ATS Match"
+    elif ats_score >= 60:
+        fit_level = "Moderate ATS Match"
+    else:
+        fit_level = "Growth Opportunity (At Risk of ATS Filter)"
+
+    # Actionable ATS Optimization Recommendations
     recommendations = []
-    role_label = job_title or "this role"
+    role_label = job_title or "this position"
     company_label = f" at {company}" if company else ""
 
     if missing:
         top_missing = ", ".join(missing[:4])
         recommendations.append(
-            f"Address requirements in {top_missing} by highlighting related architectures, projects, or self-directed learning."
+            f"ATS Keyword Gap: Incorporate exact terms for '{top_missing}' in your Skills and Experience bullet points to pass automated keyword screening."
         )
+
+    if not section_checks.get("has_quantified_metrics"):
+        recommendations.append(
+            "Quantified Impact: Add numerical metrics (e.g. latency reduction %, throughput, team size, cost savings) to experience bullets to rank higher in recruiter ATS views."
+        )
+
+    if not section_checks.get("has_email") or not section_checks.get("has_phone"):
+        recommendations.append(
+            "ATS Header Issue: Ensure a clearly visible email and phone number are present at the top of your resume for recruiter outreach parsers."
+        )
+
     if matching:
         top_matching = ", ".join(matching[:4])
         recommendations.append(
-            f"Lead with verified proficiencies in {top_matching} during behavioral and technical interview stages."
+            f"Core ATS Strengths: Your verified proficiency in {top_matching} provides a solid qualification match for {role_label}."
         )
+
     if extra_strengths:
         top_extra = ", ".join(extra_strengths[:3])
         recommendations.append(
-            f"Position your additional background in {top_extra} as a key differentiator for {role_label}."
+            f"Value-Add Differentiators: Emphasize your background in {top_extra} as versatile strengths that distinguish you from other candidates."
         )
+
     if not recommendations:
         recommendations.append(
-            f"Tailor your experience bullet points to mirror the key verbs and outcomes in the {role_label} posting."
+            f"Tailor action verbs in your recent role to directly reflect the requirements of {role_label}."
         )
 
     summary = (
-        f"AI analysis evaluated a {fit_level} ({score}%) for {role_label}{company_label}. "
-        f"Detected {len(matching)} key matching qualifications and {len(missing)} requirement gaps."
+        f"ATS Match Score: {ats_score}% ({fit_level}) for {role_label}{company_label}. "
+        f"Technical Skills: {skills_score}%, Experience Alignment: {experience_score}%, "
+        f"ATS Formatting Health: {formatting_score}%, Semantic Relevance: {semantic_score}%."
     )
 
+    ats_breakdown = {
+        "skills_score": skills_score,
+        "experience_score": experience_score,
+        "education_score": education_score,
+        "formatting_score": formatting_score,
+        "semantic_score": semantic_score,
+    }
+
     return {
-        "match_score": score,
+        "match_score": ats_score,
         "fit_level": fit_level,
         "matching_skills": matching,
         "missing_skills": missing,
         "candidate_strengths": extra_strengths,
         "recommendations": recommendations,
         "summary": summary,
+        "ats_score": ats_score,
+        "ats_breakdown": ats_breakdown,
+        "section_checks": section_checks,
+        "detected_years_candidate": cand_years,
+        "detected_years_required": req_years,
     }
 
 
@@ -578,7 +781,6 @@ def generate_tailored_cover_letter(
     role_name = job_title.strip() if job_title else "Software Engineer"
     active_tone = tone.lower() if tone else "professional"
 
-    # Construct prompt messages for instruction model
     resume_snippet = resume_text.strip()[:500]
     job_snippet = job_description.strip()[:350]
 
@@ -645,7 +847,6 @@ def generate_tailored_cover_letter(
             f"Sincerely,\n[Your Name]"
         )
 
-    # Generate or format concise LinkedIn / Recruiter outreach message (< 300 chars)
     outreach_message = (
         f"Hi there! I noticed {company_name} is hiring for a {role_name}. "
         f"With my hands-on background in {skills_phrase}, I'd love to connect and discuss how I can contribute to the team. Best, [Your Name]"

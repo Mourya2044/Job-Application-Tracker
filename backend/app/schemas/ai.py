@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -9,14 +9,37 @@ class ResumeMatchRequest(BaseModel):
     company: Optional[str] = Field("", description="Company name")
 
 
+class ATSBreakdown(BaseModel):
+    skills_score: int = Field(..., description="Technical keywords & skills match score (0-100)")
+    experience_score: int = Field(..., description="Years of experience and seniority alignment score (0-100)")
+    education_score: int = Field(..., description="Education and credentials match score (0-100)")
+    formatting_score: int = Field(..., description="ATS parseability, section headers, and formatting score (0-100)")
+    semantic_score: int = Field(..., description="Semantic relevance and responsibility alignment score (0-100)")
+
+
+class SectionChecks(BaseModel):
+    has_email: bool = Field(..., description="Valid contact email detected")
+    has_phone: bool = Field(..., description="Contact phone number detected")
+    has_experience_section: bool = Field(..., description="Standard work experience section detected")
+    has_education_section: bool = Field(..., description="Standard education section detected")
+    has_skills_section: bool = Field(..., description="Standard technical skills section detected")
+    has_quantified_metrics: bool = Field(..., description="Action verbs with quantified metrics detected")
+
+
 class ResumeMatchResponse(BaseModel):
-    match_score: int
-    fit_level: str
-    matching_skills: List[str]
-    missing_skills: List[str]
-    candidate_strengths: List[str]
-    recommendations: List[str]
-    summary: str
+    match_score: int = Field(..., description="Overall ATS composite match score (0-100)")
+    fit_level: str = Field(..., description="ATS fit tier / ranking tier")
+    matching_skills: List[str] = Field(..., description="Matched technical skills and qualifications")
+    missing_skills: List[str] = Field(..., description="Missing ATS keywords and qualifications")
+    candidate_strengths: List[str] = Field(..., description="Candidate strengths exceeding job requirements")
+    recommendations: List[str] = Field(..., description="Actionable ATS optimization recommendations")
+    summary: str = Field(..., description="Executive ATS evaluation summary")
+    # Extended ATS Scorer telemetry
+    ats_score: Optional[int] = Field(None, description="Equivalent to match_score")
+    ats_breakdown: Optional[ATSBreakdown] = Field(None, description="Pillar-by-pillar ATS score breakdown")
+    section_checks: Optional[SectionChecks] = Field(None, description="ATS parseability and formatting checklist")
+    detected_years_candidate: Optional[int] = Field(None, description="Candidate years of experience detected")
+    detected_years_required: Optional[int] = Field(None, description="Job required years of experience detected")
 
 
 class CoverLetterRequest(BaseModel):
