@@ -3,6 +3,10 @@ import sys
 import json
 import logging
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load local environment variables if available
+load_dotenv()
 
 # Suppress harmless Python 3.12 / Gradio 6 selector event loop destructor warning (ValueError: Invalid file descriptor: -1)
 _default_unraisablehook = sys.unraisablehook
@@ -27,6 +31,7 @@ from fastapi.openapi.utils import get_openapi
 
 # 1. ZeroGPU Handshake Requirement & GPU Decorator
 try:
+    # pyrefly: ignore [missing-import]
     import spaces
 except ImportError:
     class spaces:
@@ -54,6 +59,9 @@ from app.services.ai_advisor import (
     generate_tailored_cover_letter,
     extract_text_from_pdf,
     extract_resume_profile_from_pdf,
+    GLINER_MODEL_ID,
+    SIMILARITY_MODEL_ID,
+    GEN_MODEL_ID,
 )
 
 # Initialize database schema and ensure all tables/columns exist immediately
@@ -78,12 +86,20 @@ def check_gpu_hardware():
                 f"Total VRAM: {vram_gb:.2f} GB\n"
                 f"CUDA Version: {torch.version.cuda}\n"
                 f"Compute Capability: {props.major}.{props.minor}\n\n"
+                f"🤖 Active Models:\n"
+                f"• Entity & Skill Extractor : {GLINER_MODEL_ID}\n"
+                f"• Semantic ATS Embeddings  : {SIMILARITY_MODEL_ID}\n"
+                f"• Cover Letter / Advice LLM: {GEN_MODEL_ID}\n\n"
                 f"Status: GPU dynamic slice successfully attached to process."
             )
         return (
             "Running in CPU Mode.\n"
             "When hosted on Hugging Face Spaces with ZeroGPU, an Nvidia RTX Pro 6000 Blackwell "
-            "slice attaches dynamically on demand when GPU tasks are invoked."
+            "slice attaches dynamically on demand when GPU tasks are invoked.\n\n"
+            f"🤖 Configured Models:\n"
+            f"• Entity & Skill Extractor : {GLINER_MODEL_ID}\n"
+            f"• Semantic ATS Embeddings  : {SIMILARITY_MODEL_ID}\n"
+            f"• Cover Letter / Advice LLM: {GEN_MODEL_ID}"
         )
     except Exception as e:
         return f"Error querying hardware: {e}"
@@ -245,7 +261,7 @@ with gr.Blocks(title="Job Tracker Backend & ZeroGPU Playground", analytics_enabl
         # Tab 3: Resume Fit Analyzer
         with gr.Tab("🎯 Resume Fit Analyzer"):
             gr.Markdown("### AI Candidate Fit & Skill Gap Analyzer")
-            gr.Markdown("Powered by **GLiNER2** zero-shot extraction & **all-MiniLM-L6-v2** dense semantic embeddings running on Hugging Face Spaces with ZeroGPU.")
+            gr.Markdown(f"Powered by **{GLINER_MODEL_ID}** zero-shot extraction & **{SIMILARITY_MODEL_ID}** dense semantic embeddings running on Hugging Face Spaces with ZeroGPU.")
             
             with gr.Row():
                 with gr.Column():
@@ -280,7 +296,7 @@ with gr.Blocks(title="Job Tracker Backend & ZeroGPU Playground", analytics_enabl
         # Tab 4: Cover Letter Generator
         with gr.Tab("✍️ Cover Letter Generator"):
             gr.Markdown("### AI Cover Letter & Recruiter Outreach Generator")
-            gr.Markdown("Generates a customized 3-paragraph cover letter and a concise LinkedIn connection note powered by **SmolLM2-135M-Instruct** on Hugging Face Spaces with ZeroGPU.")
+            gr.Markdown(f"Generates a customized 3-paragraph cover letter and a concise LinkedIn connection note powered by **{GEN_MODEL_ID}** on Hugging Face Spaces with ZeroGPU.")
             
             with gr.Row():
                 with gr.Column():

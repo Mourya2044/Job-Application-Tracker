@@ -13,6 +13,9 @@ from app.services.ai_advisor import (
     generate_tailored_cover_letter,
     extract_resume_profile_from_pdf,
     extract_text_from_pdf,
+    GLINER_MODEL_ID,
+    SIMILARITY_MODEL_ID,
+    GEN_MODEL_ID,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,9 +144,9 @@ def ai_status_endpoint():
         "cuda_available": cuda_avail,
         "accelerator": "Nvidia RTX Pro 6000 Blackwell (ZeroGPU)" if cuda_avail else "Standard Execution",
         "models": {
-            "entity_extractor": "fastino/gliner2-multi-v1",
-            "semantic_matching": "sentence-transformers/all-MiniLM-L6-v2",
-            "cover_letter_generator": "HuggingFaceTB/SmolLM2-135M-Instruct",
-            "pdf_parser": "pypdf + GLiNER2",
+            "entity_extractor": GLINER_MODEL_ID,
+            "semantic_matching": SIMILARITY_MODEL_ID,
+            "cover_letter_generator": GEN_MODEL_ID,
+            "pdf_parser": f"pypdf + {GLINER_MODEL_ID}",
         },
     }

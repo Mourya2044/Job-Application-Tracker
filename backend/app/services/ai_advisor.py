@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 # ZeroGPU decorator compatibility
 try:
+    # pyrefly: ignore [missing-import]
     import spaces
 except ImportError:
     class spaces:
@@ -20,9 +21,28 @@ except ImportError:
             return decorator
 
 # Model identifiers hosted on Hugging Face Hub / HF Spaces
-GLINER_MODEL_ID = os.getenv("GLINER_MODEL_ID") 
-SIMILARITY_MODEL_ID = os.getenv("SIMILARITY_MODEL_ID") 
-GEN_MODEL_ID = os.getenv("AI_ADVISOR_MODEL")
+GLINER_MODEL_ID = (
+    os.getenv("GLINER_MODEL_ID")
+    or os.getenv("NER_MODEL_ID")
+    or "fastino/gliner2-multi-v1"
+).strip().strip("'\"")
+
+SIMILARITY_MODEL_ID = (
+    os.getenv("SIMILARITY_MODEL_ID")
+    or os.getenv("EMBEDDING_MODEL_ID")
+    or os.getenv("SIMILARITY_MODEL")
+    or os.getenv("EMBED_MODEL")
+    or "sentence-transformers/all-MiniLM-L6-v2"
+).strip().strip("'\"")
+
+GEN_MODEL_ID = (
+    os.getenv("AI_ADVISOR_MODEL")
+    or os.getenv("GEN_MODEL_ID")
+    or os.getenv("MODEL_ID")
+    or os.getenv("LLM_MODEL")
+    or os.getenv("TEXT_MODEL_ID")
+    or "HuggingFaceTB/SmolLM2-135M-Instruct"
+).strip().strip("'\"")
 
 # Global lazy singletons
 _gliner_model = None
@@ -531,13 +551,13 @@ def analyze_resume_fit(
             matching.append(req)
             continue
 
-        # Check semantic embedding match with threshold 0.65
+        # Check semantic embedding match for direct synonyms/equivalents (threshold 0.85)
         req_emb = compute_semantic_embedding(req)
         matched = False
         if req_emb is not None and candidate_skill_embs:
             for cs, c_emb in candidate_skill_embs.items():
                 sim = calculate_semantic_similarity(req_emb, c_emb)
-                if sim >= 0.65:
+                if sim >= 0.85:
                     matched = True
                     break
 
