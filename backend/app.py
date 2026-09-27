@@ -76,7 +76,7 @@ def check_gpu_hardware():
                 f"Status: GPU dynamic slice successfully attached to process."
             )
         return (
-            "ℹ️ Running in CPU Mode.\n"
+            "Running in CPU Mode.\n"
             "When hosted on Hugging Face Spaces with ZeroGPU, an Nvidia RTX Pro 6000 Blackwell "
             "slice attaches dynamically on demand when GPU tasks are invoked."
         )
@@ -240,7 +240,7 @@ with gr.Blocks(title="Job Tracker Backend & ZeroGPU Playground", analytics_enabl
         # Tab 3: Resume Fit Analyzer
         with gr.Tab("🎯 Resume Fit Analyzer"):
             gr.Markdown("### AI Candidate Fit & Skill Gap Analyzer")
-            gr.Markdown("Compares candidate qualifications against job requirements to compute match score and missing skills.")
+            gr.Markdown("Powered by **GLiNER2** zero-shot extraction & **all-MiniLM-L6-v2** dense semantic embeddings running on Hugging Face Spaces with ZeroGPU.")
             
             with gr.Row():
                 with gr.Column():
@@ -273,7 +273,7 @@ with gr.Blocks(title="Job Tracker Backend & ZeroGPU Playground", analytics_enabl
         # Tab 4: Cover Letter Generator
         with gr.Tab("✍️ Cover Letter Generator"):
             gr.Markdown("### AI Cover Letter & Recruiter Outreach Generator")
-            gr.Markdown("Generates a customized 3-paragraph cover letter and a concise LinkedIn connection note.")
+            gr.Markdown("Generates a customized 3-paragraph cover letter and a concise LinkedIn connection note powered by **SmolLM2-135M-Instruct** on Hugging Face Spaces with ZeroGPU.")
             
             with gr.Row():
                 with gr.Column():

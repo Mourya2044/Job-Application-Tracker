@@ -70,4 +70,9 @@ def ai_status_endpoint():
         "device": device_name,
         "cuda_available": cuda_avail,
         "accelerator": "Nvidia RTX Pro 6000 Blackwell (ZeroGPU)" if cuda_avail else "Standard Execution",
+        "models": {
+            "entity_extractor": "fastino/gliner2-multi-v1",
+            "semantic_matching": "sentence-transformers/all-MiniLM-L6-v2",
+            "cover_letter_generator": "HuggingFaceTB/SmolLM2-135M-Instruct",
+        },
     }

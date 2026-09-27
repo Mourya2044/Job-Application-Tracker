@@ -13,3 +13,7 @@ psycopg[binary]
 httpx
 gradio
 gliner2
+torch
+transformers
+huggingface_hub
+accelerate

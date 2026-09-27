@@ -1,5 +1,6 @@
-import logging
+import os
 import re
+import logging
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -17,77 +18,197 @@ except ImportError:
                 return f
             return decorator
 
-# Common technical & professional skill lexicon for extraction
-KNOWN_TECH_SKILLS = [
-    # Languages
-    "python", "javascript", "typescript", "java", "c++", "c#", "go", "golang", "rust",
-    "ruby", "php", "swift", "kotlin", "scala", "sql", "r", "html", "css", "bash", "shell",
-    # Frontend
-    "react", "react.js", "next.js", "vue", "vue.js", "angular", "svelte", "tailwind",
-    "redux", "graphql", "rest", "restful", "webpack", "vite",
-    # Backend & Frameworks
-    "fastapi", "django", "flask", "node.js", "express", "spring", "spring boot",
-    ".net", "asp.net", "rails", "gin", "grpc", "microservices",
-    # Databases & Storage
-    "postgresql", "postgres", "mysql", "mongodb", "redis", "elasticsearch", "cassandra",
-    "sqlite", "dynamodb", "snowflake", "bigquery", "prisma", "sqlalchemy",
-    # Cloud & DevOps
-    "aws", "amazon web services", "gcp", "google cloud", "azure", "docker", "kubernetes",
-    "k8s", "terraform", "ci/cd", "github actions", "gitlab ci", "jenkins", "linux", "nginx",
-    # AI & Data
-    "pytorch", "tensorflow", "keras", "scikit-learn", "pandas", "numpy", "transformers",
-    "huggingface", "llm", "rag", "langchain", "nlp", "computer vision", "opencv", "spark",
-    # Practices & Methods
-    "agile", "scrum", "git", "system design", "distributed systems", "tdd", "unit testing",
-    "api design", "oop", "clean architecture"
-]
+# Model identifiers hosted on Hugging Face Hub / HF Spaces
+GLINER_MODEL_ID = os.getenv("GLINER_MODEL_ID", "fastino/gliner2-multi-v1")
+SIMILARITY_MODEL_ID = os.getenv("SIMILARITY_MODEL_ID", "sentence-transformers/all-MiniLM-L6-v2")
+GEN_MODEL_ID = os.getenv("AI_ADVISOR_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct")
+
+# Global lazy singletons
+_gliner_model = None
+_sim_tokenizer = None
+_sim_model = None
+_gen_tokenizer = None
+_gen_model = None
+
+
+def get_gliner_model():
+    """Lazily load GLiNER2 zero-shot entity and skill extractor."""
+    global _gliner_model
+    if _gliner_model is None:
+        try:
+            from gliner2 import GLiNER2
+            _gliner_model = GLiNER2.from_pretrained(GLINER_MODEL_ID)
+            logger.info("GLiNER2 skill extractor initialized (%s)", GLINER_MODEL_ID)
+        except Exception as e:
+            logger.warning("Could not load GLiNER2 model: %s", e)
+            _gliner_model = False
+    return _gliner_model if _gliner_model is not False else None
+
+
+def get_similarity_model():
+    """Lazily load MiniLM transformer model for semantic embeddings."""
+    global _sim_tokenizer, _sim_model
+    if _sim_model is None:
+        try:
+            import torch
+            from transformers import AutoTokenizer, AutoModel
+            _sim_tokenizer = AutoTokenizer.from_pretrained(SIMILARITY_MODEL_ID)
+            _sim_model = AutoModel.from_pretrained(SIMILARITY_MODEL_ID)
+            _sim_model.eval()
+            logger.info("Semantic similarity model initialized (%s)", SIMILARITY_MODEL_ID)
+        except Exception as e:
+            logger.warning("Could not load similarity model: %s", e)
+            _sim_model = False
+            _sim_tokenizer = False
+    return (_sim_tokenizer, _sim_model) if _sim_model is not False else (None, None)
+
+
+def get_generation_model():
+    """Lazily load instruction-tuned language model for cover letters & advice."""
+    global _gen_tokenizer, _gen_model
+    if _gen_model is None:
+        try:
+            import torch
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            _gen_tokenizer = AutoTokenizer.from_pretrained(GEN_MODEL_ID)
+            _gen_model = AutoModelForCausalLM.from_pretrained(
+                GEN_MODEL_ID,
+                dtype=torch.float32 if not torch.cuda.is_available() else torch.float16,
+            )
+            _gen_model.eval()
+            logger.info("Text generation model initialized (%s)", GEN_MODEL_ID)
+        except Exception as e:
+            logger.warning("Could not load text generation model: %s", e)
+            _gen_model = False
+            _gen_tokenizer = False
+    return (_gen_tokenizer, _gen_model) if _gen_model is not False else (None, None)
+
+
+# Canonical aliases for normalization
+SYNONYM_MAP = {
+    "golang": "Go",
+    "go": "Go",
+    "react.js": "React",
+    "reactjs": "React",
+    "react": "React",
+    "vue.js": "Vue",
+    "vuejs": "Vue",
+    "vue": "Vue",
+    "postgres": "PostgreSQL",
+    "postgresql": "PostgreSQL",
+    "aws": "AWS",
+    "amazon web services": "AWS",
+    "gcp": "GCP",
+    "google cloud": "GCP",
+    "google cloud platform": "GCP",
+    "k8s": "Kubernetes",
+    "kubernetes": "Kubernetes",
+    "rest": "REST APIs",
+    "restful": "REST APIs",
+    "fastapi": "FastAPI",
+    "docker": "Docker",
+    "python": "Python",
+    "typescript": "TypeScript",
+    "javascript": "JavaScript",
+    "redis": "Redis",
+    "graphql": "GraphQL",
+    "tailwind": "Tailwind CSS",
+    "tailwindcss": "Tailwind CSS",
+    "next.js": "Next.js",
+    "nextjs": "Next.js",
+}
+
+
+def _normalize_skill(skill: str) -> str:
+    cleaned = skill.strip().strip(",.;:()[]{}'\"")
+    lower = cleaned.lower()
+    if lower in SYNONYM_MAP:
+        return SYNONYM_MAP[lower]
+    return cleaned.title() if not cleaned.isupper() and len(cleaned) <= 4 else cleaned
 
 
 def extract_skills_from_text(text: str) -> List[str]:
-    """Extracts known tech skills and keywords from free text."""
-    if not text:
+    """
+    Extracts technical skills and qualifications using GLiNER2 zero-shot information extraction.
+    Falls back gracefully if the neural model is not yet cached.
+    """
+    if not text or not text.strip():
         return []
-    
-    text_lower = " " + re.sub(r"[^a-zA-Z0-9\+\#\.\/]", " ", text.lower()) + " "
-    found = []
-    
-    for skill in KNOWN_TECH_SKILLS:
-        # Match with word boundaries or punctuation boundaries
-        pattern = r"(?:\b|\s)" + re.escape(skill) + r"(?:\b|\s)"
-        if re.search(pattern, text_lower):
-            found.append(skill.title() if not skill.isupper() else skill)
-            
-    # Normalize synonyms
-    canonical = []
+
+    found_skills = []
+    gliner = get_gliner_model()
+
+    if gliner:
+        try:
+            schema = (
+                gliner.create_schema()
+                .entities({
+                    "skill": "Technical skill, programming language, library, framework, or database",
+                    "competency": "Engineering domain proficiency, cloud platform, or core qualification",
+                })
+            )
+            extraction = gliner.extract(text[:2500], schema)
+            entities = extraction.get("entities", {})
+            for item in entities.get("skill", []) + entities.get("competency", []):
+                norm = _normalize_skill(item)
+                if norm and len(norm) > 1:
+                    found_skills.append(norm)
+        except Exception as e:
+            logger.debug("GLiNER2 extraction failed: %s", e)
+
+    # Secondary pattern heuristic to ensure full coverage of common tech tokens
+    token_pattern = r"(?i)\b(python|javascript|typescript|golang|go|rust|java|c\+\+|c\#|ruby|sql|react|vue|angular|fastapi|django|flask|node\.js|express|docker|kubernetes|k8s|aws|gcp|azure|postgresql|postgres|mysql|redis|mongodb|graphql|tailwind|next\.js|linux|ci/cd|terraform|git)\b"
+    for match in re.finditer(token_pattern, text):
+        norm = _normalize_skill(match.group(1))
+        if norm not in found_skills:
+            found_skills.append(norm)
+
+    # Deduplicate while preserving order
+    deduped = []
     seen = set()
-    for s in found:
-        norm = s.lower()
-        if norm in ("golang", "go"):
-            c = "Go"
-        elif norm in ("react.js", "react"):
-            c = "React"
-        elif norm in ("vue.js", "vue"):
-            c = "Vue"
-        elif norm in ("postgres", "postgresql"):
-            c = "PostgreSQL"
-        elif norm in ("aws", "amazon web services"):
-            c = "AWS"
-        elif norm in ("gcp", "google cloud"):
-            c = "GCP"
-        elif norm in ("k8s", "kubernetes"):
-            c = "Kubernetes"
-        elif norm in ("rest", "restful"):
-            c = "REST APIs"
-        else:
-            c = s
-            
-        if c.lower() not in seen:
-            seen.add(c.lower())
-            canonical.append(c)
-            
-    return canonical
+    for s in found_skills:
+        k = s.lower()
+        if k not in seen:
+            seen.add(k)
+            deduped.append(s)
+
+    return deduped
 
 
+def compute_semantic_embedding(text: str):
+    """Computes normalized dense contextual embedding using all-MiniLM-L6-v2."""
+    tok, model = get_similarity_model()
+    if not tok or not model:
+        return None
+
+    try:
+        import torch
+        inp = tok(text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        device = next(model.parameters()).device
+        inp = {k: v.to(device) for k, v in inp.items()}
+        with torch.no_grad():
+            out = model(**inp)
+            emb = out.last_hidden_state.mean(dim=1)
+            norm_emb = torch.nn.functional.normalize(emb, p=2, dim=1)
+            return norm_emb
+    except Exception as e:
+        logger.debug("Error computing semantic embedding: %s", e)
+        return None
+
+
+def calculate_semantic_similarity(emb1, emb2) -> float:
+    """Calculates cosine similarity between two normalized embeddings."""
+    if emb1 is None or emb2 is None:
+        return 0.0
+    try:
+        import torch
+        sim = float(torch.mm(emb1, emb2.T)[0][0].item())
+        return max(-1.0, min(1.0, sim))
+    except Exception:
+        return 0.0
+
+
+@spaces.GPU(duration=60)
 def analyze_resume_fit(
     resume_text: str,
     job_description: str,
@@ -95,36 +216,70 @@ def analyze_resume_fit(
     company: str = ""
 ) -> Dict:
     """
-    Computes a comprehensive match analysis between candidate resume and job posting.
-    Returns match score, matched skills, missing skills, and actionable recommendations.
+    Computes a comprehensive match analysis between candidate resume and job requirements
+    using Hugging Face AI models (GLiNER2 + all-MiniLM-L6-v2 embeddings).
     """
     resume_skills = extract_skills_from_text(resume_text)
     job_skills = extract_skills_from_text(job_description)
-    
-    # If job description mentions no specific known tech skills, extract common role keywords
+
     if not job_skills and job_title:
         title_skills = extract_skills_from_text(job_title)
         if title_skills:
             job_skills.extend(title_skills)
-            
-    resume_skill_set = {s.lower() for s in resume_skills}
-    job_skill_set = {s.lower() for s in job_skills}
-    
-    matching = [s for s in job_skills if s.lower() in resume_skill_set]
-    missing = [s for s in job_skills if s.lower() not in resume_skill_set]
-    extra_strengths = [s for s in resume_skills if s.lower() not in job_skill_set][:6]
-    
-    # Calculate score
-    if job_skills:
-        ratio = len(matching) / len(job_skills)
-        score = int(min(98, max(35, round(ratio * 70 + 25))))
-    else:
-        # Lexical overlap fallback
-        resume_words = set(re.findall(r"\w+", resume_text.lower()))
-        job_words = set(re.findall(r"\w+", job_description.lower()))
-        overlap = len(resume_words.intersection(job_words))
-        score = int(min(95, max(40, round(overlap * 2.5)))) if job_words else 70
 
+    # 1. Compute Document-level Semantic Similarity
+    emb_resume = compute_semantic_embedding(resume_text)
+    emb_job = compute_semantic_embedding(job_description)
+    doc_similarity = calculate_semantic_similarity(emb_resume, emb_job)
+
+    # 2. Compute Requirement-level Alignment via Dense Similarity
+    matching = []
+    missing = []
+
+    candidate_skill_embs = {}
+    for cs in resume_skills:
+        c_emb = compute_semantic_embedding(cs)
+        if c_emb is not None:
+            candidate_skill_embs[cs] = c_emb
+
+    for req in job_skills:
+        # Check direct lexical match first
+        if any(req.lower() == cs.lower() for cs in resume_skills):
+            matching.append(req)
+            continue
+
+        # Check semantic embedding match
+        req_emb = compute_semantic_embedding(req)
+        matched = False
+        if req_emb is not None and candidate_skill_embs:
+            for cs, c_emb in candidate_skill_embs.items():
+                sim = calculate_semantic_similarity(req_emb, c_emb)
+                if sim >= 0.65:
+                    matched = True
+                    break
+
+        if matched:
+            matching.append(req)
+        else:
+            missing.append(req)
+
+    # Extra strengths candidate has that aren't explicit job requirements
+    job_skill_lower = {s.lower() for s in job_skills}
+    extra_strengths = [s for s in resume_skills if s.lower() not in job_skill_lower][:6]
+
+    # 3. Dynamic AI Match Score Calculation
+    if job_skills:
+        coverage_ratio = len(matching) / len(job_skills)
+        sim_factor = max(0.0, doc_similarity)
+        # Weighted blend of semantic alignment (35%) and requirement coverage (65%)
+        raw_score = (0.35 * sim_factor + 0.65 * coverage_ratio) * 65 + 32
+        score = int(min(98, max(38, round(raw_score))))
+    else:
+        # Grounded in document embedding similarity
+        sim_factor = max(0.0, doc_similarity)
+        score = int(min(95, max(45, round(sim_factor * 85 + 15))))
+
+    # Determine fit level
     if score >= 80:
         fit_level = "Strong Match"
     elif score >= 60:
@@ -132,26 +287,34 @@ def analyze_resume_fit(
     else:
         fit_level = "Growth Opportunity"
 
-    # Actionable recommendations
+    # 4. Generate AI Strategic Preparation Recommendations
     recommendations = []
-    if missing:
-        top_missing = ", ".join(missing[:4])
-        recommendations.append(f"Highlight any experience or project familiarity with: {top_missing}.")
-    if matching:
-        top_matching = ", ".join(matching[:4])
-        recommendations.append(f"Emphasize your core strengths in {top_matching} during your initial screening.")
-    if extra_strengths:
-        top_extra = ", ".join(extra_strengths[:3])
-        recommendations.append(f"Leverage your additional proficiency in {top_extra} to stand out as a multifaceted candidate.")
-    if not recommendations:
-        recommendations.append("Tailor your work experience bullet points to mirror the key verbs and outcomes in the job post.")
-
-    role_label = job_title or "this position"
+    role_label = job_title or "this role"
     company_label = f" at {company}" if company else ""
 
+    if missing:
+        top_missing = ", ".join(missing[:4])
+        recommendations.append(
+            f"Address requirements in {top_missing} by highlighting related architectures, projects, or self-directed learning."
+        )
+    if matching:
+        top_matching = ", ".join(matching[:4])
+        recommendations.append(
+            f"Lead with verified proficiencies in {top_matching} during behavioral and technical interview stages."
+        )
+    if extra_strengths:
+        top_extra = ", ".join(extra_strengths[:3])
+        recommendations.append(
+            f"Position your additional background in {top_extra} as a key differentiator for {role_label}."
+        )
+    if not recommendations:
+        recommendations.append(
+            f"Tailor your experience bullet points to mirror the key verbs and outcomes in the {role_label} posting."
+        )
+
     summary = (
-        f"You are a {fit_level} ({score}%) for {role_label}{company_label}. "
-        f"Found {len(matching)} key matching qualifications with {len(missing)} areas to address."
+        f"AI analysis evaluated a {fit_level} ({score}%) for {role_label}{company_label}. "
+        f"Detected {len(matching)} key matching qualifications and {len(missing)} requirement gaps."
     )
 
     return {
@@ -165,6 +328,86 @@ def analyze_resume_fit(
     }
 
 
+def _generate_with_causal_lm(
+    prompt_messages: List[Dict[str, str]],
+    max_new_tokens: int = 220
+) -> Optional[str]:
+    """Generates text from instruction model using chat template."""
+    tok, model = get_generation_model()
+    if not tok or not model:
+        return None
+
+    try:
+        import torch
+        device = next(model.parameters()).device
+        prompt = tok.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+        inp = tok(prompt, return_tensors="pt").to(device)
+
+        with torch.no_grad():
+            out = model.generate(
+                **inp,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9,
+                repetition_penalty=1.1,
+            )
+            gen_text = tok.decode(out[0][inp.input_ids.shape[1]:], skip_special_tokens=True)
+            return gen_text.strip()
+    except Exception as e:
+        logger.warning("Causal LM generation encountered an error: %s", e)
+        return None
+
+
+def _clean_and_personalize_cover_letter(
+    raw_text: str,
+    role_name: str,
+    company_name: str,
+    skills_phrase: str,
+    tone: str
+) -> str:
+    """Post-processes AI model text to guarantee accurate company, role, and formatting."""
+    text = raw_text.strip()
+    text = re.sub(r"^```(?:markdown)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+
+    # 1. Replace placeholder tokens commonly produced by LLMs
+    placeholders = [
+        (r"\[(?:Company\s*Name|Company|Target\s*Company|Client\s*Name|Organization)\]", company_name),
+        (r"\[(?:Job\s*Title|Position\s*Title|Position|Role\s*Name|Role)\]", role_name),
+        (r"\[(?:Recipient(?:'s)?\s*Name|Hiring\s*Manager|Hiring\s*Team)\]", f"Hiring Team at {company_name}"),
+        (r"\[(?:Candidate\s*Name|My\s*Name|Applicant\s*Name)\]", "[Your Name]"),
+    ]
+    for pat, rep in placeholders:
+        text = re.sub(pat, rep, text, flags=re.IGNORECASE)
+
+    # 2. Ensure company_name appears in the greeting or text
+    if company_name not in text:
+        if text.lower().startswith("dear"):
+            lines = text.split("\n", 1)
+            text = f"Dear Hiring Team at {company_name},\n" + (lines[1] if len(lines) > 1 else "")
+        else:
+            text = f"Dear Hiring Team at {company_name},\n\n" + text
+
+    # 3. Ensure role_name appears in the text
+    if role_name not in text:
+        match = re.search(rf"\b{re.escape(role_name)}\b", text, flags=re.IGNORECASE)
+        if match:
+            text = text[:match.start()] + role_name + text[match.end():]
+        else:
+            paragraphs = text.split("\n\n")
+            if len(paragraphs) > 1:
+                paragraphs[1] = f"I am writing to express my strong interest in the {role_name} position at {company_name}. " + paragraphs[1]
+                text = "\n\n".join(paragraphs)
+
+    # 4. Ensure professional signoff
+    if "[Your Name]" not in text and not text.lower().endswith("sincerely,"):
+        text = text.rstrip() + "\n\nSincerely,\n[Your Name]"
+
+    return text
+
+
+@spaces.GPU(duration=60)
 def generate_tailored_cover_letter(
     resume_text: str,
     job_title: str,
@@ -173,54 +416,98 @@ def generate_tailored_cover_letter(
     tone: str = "professional"
 ) -> Dict[str, str]:
     """
-    Generates a tailored, professional 3-paragraph cover letter and a concise
-    LinkedIn/recruiter outreach message.
+    Generates a tailored, compelling cover letter and recruiter outreach note
+    using the Hugging Face instruction-tuned AI model on HF Spaces ZeroGPU.
     """
     resume_skills = extract_skills_from_text(resume_text)
     job_skills = extract_skills_from_text(job_description)
     matching_skills = [s for s in job_skills if s.lower() in {r.lower() for r in resume_skills}]
-    
-    target_skills = matching_skills if matching_skills else (resume_skills[:4] if resume_skills else ["modern software engineering", "problem solving"])
+
+    target_skills = matching_skills if matching_skills else (resume_skills[:4] if resume_skills else ["software engineering", "scalable architectures"])
     skills_phrase = ", ".join(target_skills[:3]) if len(target_skills) >= 2 else (target_skills[0] if target_skills else "software engineering")
 
     company_name = company.strip() if company else "your team"
     role_name = job_title.strip() if job_title else "Software Engineer"
+    active_tone = tone.lower() if tone else "professional"
 
-    # Tone adjustments
-    if tone.lower() == "enthusiastic":
-        opening_hook = f"I was thrilled to discover the opening for the {role_name} position at {company_name}. With my background in {skills_phrase}, I have long admired {company_name}'s innovation and product vision, and I would love to contribute directly to your team's success."
-        closer = f"I would welcome the opportunity to discuss how my passion for impact and skills in {skills_phrase} can help {company_name} achieve its goals. Thank you for your time and consideration!"
-    elif tone.lower() == "confident":
-        opening_hook = f"I am writing to express my strong interest in the {role_name} role at {company_name}. Having developed high-reliability systems and demonstrated proficiency in {skills_phrase}, I am confident in my ability to deliver immediate value to your organization."
-        closer = f"I look forward to the chance to speak with your team about driving results at {company_name}. Thank you for reviewing my application."
-    else:  # professional / balanced default
-        opening_hook = f"Please accept this letter as an expression of my enthusiasm for the {role_name} position at {company_name}. My professional experience and technical focus in {skills_phrase} align closely with the requirements of this role."
-        closer = f"Thank you for considering my application. I welcome the opportunity for an interview to explore how my qualifications can best support {company_name}."
+    # Construct prompt messages for instruction model
+    resume_snippet = resume_text.strip()[:500]
+    job_snippet = job_description.strip()[:350]
 
-    body_para = (
-        f"Throughout my career, I have focused on delivering scalable, clean, and maintainable solutions. "
-        f"My hands-on experience spans {skills_phrase}, alongside collaborating in agile environments to ship robust features on schedule. "
-        f"What excites me most about {company_name} is the opportunity to solve meaningful technical challenges while upholding high engineering standards."
+    system_prompt = (
+        "You are an expert career consultant and professional resume advisor. "
+        "Write concise, highly tailored cover letters and recruiter outreach messages."
     )
-
-    cover_letter = (
-        f"Dear Hiring Team,\n\n"
-        f"{opening_hook}\n\n"
-        f"{body_para}\n\n"
-        f"{closer}\n\n"
+    user_prompt = (
+        f"Write a 3-paragraph tailored cover letter for candidate applying for the role '{role_name}' at '{company_name}'.\n"
+        f"Tone: {active_tone.capitalize()}\n"
+        f"Candidate Background: {resume_snippet}\n"
+        f"Key qualifications to feature: {skills_phrase}\n"
+        f"Job requirements context: {job_snippet}\n\n"
+        f"Format:\n"
+        f"Dear Hiring Team at {company_name},\n\n"
+        f"[Paragraph 1: Passion for {role_name} at {company_name}]\n\n"
+        f"[Paragraph 2: Concrete technical impact delivering results with {skills_phrase}]\n\n"
+        f"[Paragraph 3: Confident interview request]\n\n"
         f"Sincerely,\n[Your Name]"
     )
 
-    # Concise Recruiter / LinkedIn Outreach message (under 300 chars, ideal for LinkedIn connection note)
+    generated_cover_letter = None
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    try:
+        raw_output = _generate_with_causal_lm(messages, max_new_tokens=220)
+        if raw_output and len(raw_output) > 100:
+            generated_cover_letter = _clean_and_personalize_cover_letter(
+                raw_text=raw_output,
+                role_name=role_name,
+                company_name=company_name,
+                skills_phrase=skills_phrase,
+                tone=active_tone,
+            )
+    except Exception as e:
+        logger.debug("AI model generation fallback: %s", e)
+
+    # High-quality fallback guaranteeing proper formatting
+    if not generated_cover_letter:
+        if active_tone == "enthusiastic":
+            opening_hook = f"I am thrilled to apply for the {role_name} position at {company_name}. Having developed robust systems and worked closely with {skills_phrase}, I have long admired {company_name}'s product vision and team culture."
+            closer = f"I would welcome the opportunity to discuss how my enthusiasm and background in {skills_phrase} can help {company_name} achieve its goals. Thank you for your consideration."
+        elif active_tone == "confident":
+            opening_hook = f"I am writing to express my strong candidacy for the {role_name} opportunity at {company_name}. With demonstrated expertise in {skills_phrase}, I am prepared to deliver immediate value to your engineering organization."
+            closer = f"I look forward to discussing how my experience delivering resilient solutions can drive technical success at {company_name}. Thank you for your time."
+        else:
+            opening_hook = f"Please accept this letter as an expression of my strong interest in the {role_name} opening at {company_name}. My background in {skills_phrase} aligns directly with the core requirements of your engineering team."
+            closer = f"Thank you for considering my application. I welcome the opportunity for an interview to explore how my qualifications can best support {company_name}."
+
+        body_para = (
+            f"Throughout my work, I have focused on engineering scalable, maintainable architectures while collaborating in agile environments. "
+            f"My hands-on experience spans {skills_phrase}, with a commitment to shipping reliable features that solve substantive business problems. "
+            f"Joining {company_name} represents an exciting opportunity to apply these technical strengths toward high-impact objectives."
+        )
+
+        generated_cover_letter = (
+            f"Dear Hiring Team at {company_name},\n\n"
+            f"{opening_hook}\n\n"
+            f"{body_para}\n\n"
+            f"{closer}\n\n"
+            f"Sincerely,\n[Your Name]"
+        )
+
+    # Generate or format concise LinkedIn / Recruiter outreach message (< 300 chars)
     outreach_message = (
         f"Hi there! I noticed {company_name} is hiring for a {role_name}. "
-        f"Given my hands-on background in {skills_phrase}, I believe I'd be a great addition to the team. "
-        f"I've submitted my application and would love to connect. Best, [Your Name]"
+        f"With my hands-on background in {skills_phrase}, I'd love to connect and discuss how I can contribute to the team. Best, [Your Name]"
     )
+    if len(outreach_message) >= 300:
+        outreach_message = f"Hi! I recently applied for {role_name} at {company_name}. With expertise in {skills_phrase}, I'd love to connect! Best, [Your Name]"
 
     return {
-        "cover_letter": cover_letter,
+        "cover_letter": generated_cover_letter,
         "outreach_message": outreach_message,
-        "tone": tone,
+        "tone": active_tone,
         "skills_highlighted": target_skills[:5],
     }
