@@ -57,6 +57,8 @@ export function ApplicationDetailModal({
   const [copiedLetter, setCopiedLetter] = useState(false)
   const [copiedOutreach, setCopiedOutreach] = useState(false)
   const [copiedBulletIdx, setCopiedBulletIdx] = useState(null)
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false)
+  const pdfInputRef = useRef(null)
 
   const handleCopyBullet = (text, idx) => {
     navigator.clipboard.writeText(text)
@@ -77,9 +79,6 @@ export function ApplicationDetailModal({
   }, [application])
 
   if (!isOpen || !application) return null
-
-  const [isUploadingPdf, setIsUploadingPdf] = useState(false)
-  const pdfInputRef = useRef(null)
 
   const handleResumeChange = (e) => {
     const val = e.target.value
