@@ -168,10 +168,32 @@ def _clean_skill_token(skill: str) -> str:
     return cleaned.title()
 
 
+NON_SKILL_WORDS = {
+    "location", "bengaluru", "bangalore", "karnataka", "india", "category", "others",
+    "reqid", "description", "requirements", "about", "role", "roles", "as", "back",
+    "end", "data", "analytics", "you", "this", "key", "responsibilities", "primary",
+    "secondary", "collaborate", "frontend", "backend", "scientists", "ml", "developers",
+    "ensure", "identify", "stay", "contribute", "conduct", "managerial", "leadership",
+    "provide", "inspire", "what", "we", "are", "graduation", "graduationin", "bca",
+    "b.tech", "btech", "bsc", "minimum", "attributes", "proficiency", "strong",
+    "familiarity", "excellent", "education", "design", "engineers", "engineer", "job",
+    "jobs", "for", "team", "teams", "work", "years", "experience", "looking", "candidate",
+    "candidates", "resume", "summary", "projects", "project", "overview", "qualification",
+    "qualifications", "degree", "bachelor", "master", "phd", "university", "college",
+    "school", "certificate", "certification", "skills", "skill", "competency", "competencies",
+    "decisions", "quality", "productization", "solutions", "solution", "practices", "practice",
+    "standards", "standard", "growth", "example", "innovation", "innovations", "performance",
+    "responsiveness", "bottlenecks", "bugs", "full-stack", "fullstack", "implementation",
+    "reviews", "mentorship", "guidance", "opening", "openings", "interest", "communication",
+    "collaboration", "abilities", "ability", "understanding", "function", "systems", "system",
+    "architecture decisions", "code quality", "productization", "asynchronous programming"
+}
+
+
 def extract_skills_from_text(text: str) -> List[str]:
     """
-    Extracts technical skills, engineering proficiencies, frameworks, and tools
-    using GLiNER2 zero-shot information extraction on GPU without hardcoded keyword lists.
+    Extracts verified technical skills, programming languages, frameworks, libraries,
+    databases, cloud tools, and protocols using GLiNER2 zero-shot information extraction.
     """
     if not text or not text.strip():
         return []
@@ -184,44 +206,31 @@ def extract_skills_from_text(text: str) -> List[str]:
             schema = (
                 gliner.create_schema()
                 .entities({
-                    "skill": "Programming languages, frameworks, developer tools, libraries, APIs, databases, cloud platforms",
-                    "competency": "Engineering domain proficiency, DevOps, system architecture, data engineering, protocols",
-                    "qualification": "Certifications, technical credentials, or specialized proficiencies",
+                    "programming_language": "Programming language such as Python, Golang, C++, JavaScript, TypeScript, SQL",
+                    "framework_or_library": "Software framework or library such as React, Node.js, Next.js, FastAPI, Express.js, LangGraph, Tailwind CSS",
+                    "database_or_tool": "Database, data store, cloud platform, or DevOps tool such as PostgreSQL, MongoDB, Redis, AWS, Docker, Kubernetes, GitHub Actions, CI/CD, Git",
+                    "technical_protocol": "Specific technical protocol or architecture such as REST APIs, SSE, GraphQL, JWT, microservices, distributed systems",
                 })
             )
             # Process up to 4000 characters for comprehensive extraction
             extraction = gliner.extract(text[:4000], schema)
             entities = extraction.get("entities", {})
-            for cat in ["skill", "competency", "qualification"]:
+            for cat in ["programming_language", "framework_or_library", "database_or_tool", "technical_protocol"]:
                 for item in entities.get(cat, []):
+                    item = item.replace("A WS", "AWS")
                     cleaned = _clean_skill_token(item)
-                    if (
-                        cleaned
-                        and len(cleaned) > 1
-                        and cleaned.lower() not in {
-                            "and", "with", "the", "for", "or", "in", "to", "of",
-                            "experience", "years", "knowledge", "proficient", "strong"
-                        }
-                    ):
+                    if cleaned and cleaned.lower() not in NON_SKILL_WORDS and len(cleaned) > 1:
                         found_skills.append(cleaned)
         except Exception as e:
             logger.debug("GLiNER2 extraction failed: %s", e)
 
-    # Dynamic fallback: if neural model is offline or during cold-start, extract capitalized tech symbols
+    # Curated pattern fallback if neural model is offline or cold-starting
     if not found_skills:
-        dynamic_matches = re.findall(r"\b[A-Za-z0-9#\+\.\/\-]{2,20}\b", text)
-        for token in dynamic_matches:
-            if any(c.isupper() for c in token) or any(c in "#+./" for c in token):
-                cleaned = _clean_skill_token(token)
-                if (
-                    cleaned
-                    and len(cleaned) > 1
-                    and cleaned.lower() not in {
-                        "senior", "junior", "lead", "engineer", "developer", "experience",
-                        "looking", "candidate", "resume", "with", "and", "team"
-                    }
-                ):
-                    found_skills.append(cleaned)
+        token_pattern = r"(?i)\b(python|javascript|typescript|golang|go|rust|java|c\+\+|c\#|ruby|sql|react|vue|angular|fastapi|django|flask|node\.js|express|docker|kubernetes|k8s|aws|gcp|azure|postgresql|postgres|mysql|redis|mongodb|graphql|tailwind|next\.js|linux|ci/cd|terraform|git|rest\s*apis?|sse|jwt)\b"
+        for match in re.finditer(token_pattern, text):
+            cleaned = _clean_skill_token(match.group(1))
+            if cleaned and cleaned.lower() not in NON_SKILL_WORDS:
+                found_skills.append(cleaned)
 
     # Deduplicate while preserving order (case-insensitive)
     deduped = []
@@ -415,7 +424,7 @@ def extract_resume_profile_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> 
     email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", raw_text)
     email = email_match.group(0) if email_match else ""
 
-    phone_match = re.search(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", raw_text)
+    phone_match = re.search(r"(?:\+?\d{1,3}[-.\s]?)?(?:\d{5}\s*\d{5}|\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})", raw_text)
     phone = phone_match.group(0) if phone_match else ""
 
     links = re.findall(
@@ -496,7 +505,7 @@ def check_ats_formatting_and_sections(text: str) -> Tuple[int, Dict[str, bool]]:
     standard structural sections, and presence of quantified metrics.
     """
     has_email = bool(re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text))
-    has_phone = bool(re.search(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text))
+    has_phone = bool(re.search(r"(?:\+?\d{1,3}[-.\s]?)?(?:\d{5}\s*\d{5}|\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10})", text))
     has_exp_sec = bool(re.search(r"(?i)\b(work\s+experience|professional\s+experience|employment\s+history|experience)\b", text))
     has_edu_sec = bool(re.search(r"(?i)\b(education|academic\s+background|degrees?|qualifications?)\b", text))
     has_skills_sec = bool(re.search(r"(?i)\b(skills|technical\s+skills|technologies|core\s+competencies)\b", text))
@@ -807,8 +816,17 @@ def analyze_resume_fit(
 
     # Incorporate LLM generated strategic recommendations
     for adv in llm_advice:
-        if adv and adv not in recommendations:
-            recommendations.append(adv)
+        if isinstance(adv, dict):
+            strat = adv.get("strategy") or adv.get("recommendation") or adv.get("tip") or adv.get("advice")
+            metric = adv.get("impact_metric") or adv.get("metric")
+            formatted = f"{strat} (Impact: {metric})" if (strat and metric) else (strat or str(adv))
+        elif isinstance(adv, str):
+            formatted = adv.strip()
+        else:
+            continue
+
+        if formatted and formatted not in recommendations:
+            recommendations.append(formatted)
 
     if not recommendations:
         recommendations.append(
