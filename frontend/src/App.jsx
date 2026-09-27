@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react"
-import { 
-  Routes, 
-  Route, 
-  Navigate, 
-  NavLink, 
-  useNavigate, 
-  useLocation, 
-  useSearchParams 
+import {
+  Routes,
+  Route,
+  Navigate,
+  NavLink,
+  useNavigate,
+  useLocation,
+  useSearchParams
 } from "react-router-dom"
 import { Toaster, toast } from "sonner"
 import { fetchApi } from "@/config/api"
@@ -20,16 +20,16 @@ import { SimulateEmailModal } from "@/components/mailbox/SimulateEmailModal"
 import { SyncActivityDrawer } from "@/components/mailbox/SyncActivityDrawer"
 import { AddApplicationModal } from "@/components/board/AddApplicationModal"
 import { JobScraperView } from "@/components/jobs/JobScraperView"
-import { 
-  Bell, 
-  Search, 
-  Mail, 
-  Plus, 
-  RefreshCw, 
-  Sparkles, 
-  Activity, 
-  Trash2, 
-  MoreVertical, 
+import {
+  Bell,
+  Search,
+  Mail,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Activity,
+  Trash2,
+  MoreVertical,
   X,
   LayoutGrid,
   LogOut,
@@ -113,7 +113,7 @@ export default function App() {
         const data = await fetchApi("/api/mailbox/status")
         if (data) {
           const newUpdates = data?.background_sync?.total_updates_detected || 0
-          
+
           if (prevUpdatesRef.current !== null && newUpdates > prevUpdatesRef.current) {
             loadBoard()
             loadPendingDiscoveries()
@@ -255,8 +255,8 @@ export default function App() {
       toast.info(
         updatedApp.stage_locked ? "Status Locked" : "Status Unlocked",
         {
-          description: updatedApp.stage_locked 
-            ? "Mailbox sync will not auto-override this stage." 
+          description: updatedApp.stage_locked
+            ? "Mailbox sync will not auto-override this stage."
             : "Mailbox sync can update this stage.",
         }
       )
@@ -373,17 +373,15 @@ export default function App() {
 
   // Active navigation styling helper
   const sidebarNavLinkClass = ({ isActive }) =>
-    `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${
-      isActive
-        ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold shadow-sm"
-        : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
+    `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-sans transition-all active:scale-95 ${isActive
+      ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] border border-[rgba(212,168,53,0.25)] font-semibold shadow-sm"
+      : "text-[#8a94a8] hover:bg-[#1a2235] hover:text-[#e8e4dc] border border-transparent"
     }`
 
   const bottomNavLinkClass = ({ isActive }) =>
-    `flex flex-col items-center justify-center py-1.5 px-3 rounded-lg text-[10px] font-mono transition-colors relative ${
-      isActive
-        ? "text-[#d4a853] font-semibold"
-        : "text-[#8a94a8] hover:text-[#e8e4dc]"
+    `flex flex-col items-center justify-center py-1.5 px-3 rounded-lg text-[10px] font-mono transition-colors relative ${isActive
+      ? "text-[#d4a853] font-semibold"
+      : "text-[#8a94a8] hover:text-[#e8e4dc]"
     }`
 
   return (
@@ -397,7 +395,7 @@ export default function App() {
         {/* Brand */}
         <div className="px-3 mb-1">
           <div className="font-sans text-2xl font-bold text-[#d4a853] tracking-tight">
-            Hired<span className="opacity-40">.</span>
+            Track<span className="opacity-40">.</span>
           </div>
           <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178] mt-0.5">
             Application Tracker
@@ -446,7 +444,7 @@ export default function App() {
         <div className="flex-1" />
 
         {/* User Card at bottom */}
-        <div 
+        <div
           onClick={() => setIsConsentOpen(true)}
           className="pt-4 border-t border-[#253048] flex items-center gap-3 cursor-pointer hover:bg-[#1a2235] -mx-2 px-2 py-2 rounded-xl transition-colors group"
           title="Click to manage Gmail connection"
@@ -470,11 +468,11 @@ export default function App() {
           MOBILE OFF-CANVAS DRAWER MENU
           ============================================ */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-50 bg-[#080b12]/80 backdrop-blur-sm md:hidden animate-fadeIn"
           onClick={() => setIsMobileMenuOpen(false)}
         >
-          <div 
+          <div
             className="fixed left-0 top-0 bottom-0 w-[280px] bg-[#131926] border-r border-[#253048] flex flex-col p-6 z-50 shadow-2xl animate-fadeUp"
             onClick={(e) => e.stopPropagation()}
           >
@@ -482,13 +480,13 @@ export default function App() {
             <div className="flex items-center justify-between pb-4 border-b border-[#253048]">
               <div>
                 <div className="font-sans text-2xl font-bold text-[#d4a853]">
-                  Hired<span className="opacity-40">.</span>
+                  Track<span className="opacity-40">.</span>
                 </div>
                 <div className="font-mono text-[10px] uppercase tracking-widest text-[#556178]">
                   Application Tracker
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="p-2 rounded-lg border border-[#253048] text-[#8a94a8] hover:text-[#e8e4dc]"
               >
@@ -502,8 +500,8 @@ export default function App() {
                 Navigation
               </div>
 
-              <NavLink 
-                to="/dashboard" 
+              <NavLink
+                to="/dashboard"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={sidebarNavLinkClass}
               >
@@ -511,8 +509,8 @@ export default function App() {
                 <span>Dashboard</span>
               </NavLink>
 
-              <NavLink 
-                to="/approvals" 
+              <NavLink
+                to="/approvals"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={sidebarNavLinkClass}
               >
@@ -527,8 +525,8 @@ export default function App() {
                 )}
               </NavLink>
 
-              <NavLink 
-                to="/tracking" 
+              <NavLink
+                to="/tracking"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={sidebarNavLinkClass}
               >
@@ -536,8 +534,8 @@ export default function App() {
                 <span>Tracking Board</span>
               </NavLink>
 
-              <NavLink 
-                to="/jobs" 
+              <NavLink
+                to="/jobs"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className={sidebarNavLinkClass}
               >
@@ -561,7 +559,7 @@ export default function App() {
 
             {/* Mobile Account Details & Logout */}
             <div className="pt-4 border-t border-[#253048] space-y-3">
-              <div 
+              <div
                 onClick={() => {
                   setIsMobileMenuOpen(false)
                   setIsConsentOpen(true)
@@ -625,11 +623,11 @@ export default function App() {
               <Menu className="w-4 h-4" />
             </button>
 
-            <div 
+            <div
               onClick={() => navigate("/dashboard")}
               className="font-sans font-bold text-[#d4a853] md:hidden text-lg cursor-pointer shrink-0"
             >
-              Hired.
+              Track.
             </div>
 
             <div className="relative w-full">
@@ -642,7 +640,7 @@ export default function App() {
                 className="w-full h-8 pl-9 pr-8 bg-[#131926] border border-[#253048] rounded-lg text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853] font-sans transition-colors"
               />
               {searchQuery && (
-                <button 
+                <button
                   onClick={() => setSearchQuery("")}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#556178] hover:text-[#e8e4dc]"
                 >
@@ -737,10 +735,10 @@ export default function App() {
         <main className="flex-1 p-4 sm:p-6 md:p-10 max-w-7xl w-full mx-auto">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            
+
             {/* 1. DASHBOARD VIEW */}
-            <Route 
-              path="/dashboard" 
+            <Route
+              path="/dashboard"
               element={
                 <DashboardView
                   boardData={boardData}
@@ -749,12 +747,12 @@ export default function App() {
                   onSwitchView={(v) => navigate(v === "search" ? "/jobs" : `/${v}`)}
                   onOpenDetails={handleOpenDetails}
                 />
-              } 
+              }
             />
 
             {/* 2. APPROVALS VIEW */}
-            <Route 
-              path="/approvals" 
+            <Route
+              path="/approvals"
               element={
                 <ApprovalsView
                   discoveries={pendingDiscoveries}
@@ -763,12 +761,12 @@ export default function App() {
                   onSyncMailbox={handleSyncMailbox}
                   isSyncing={isSyncing}
                 />
-              } 
+              }
             />
 
             {/* 3. TRACKING VIEW */}
-            <Route 
-              path="/tracking" 
+            <Route
+              path="/tracking"
               element={
                 <div className="space-y-6 animate-fadeUp">
                   {/* Header */}
@@ -786,22 +784,20 @@ export default function App() {
                     <div className="inline-flex bg-[#131926] border border-[#253048] rounded-lg overflow-hidden self-start sm:self-auto shadow-sm">
                       <button
                         onClick={() => setTrackingMode("kanban")}
-                        className={`px-3.5 py-2 font-mono text-xs flex items-center gap-1.5 transition-colors ${
-                          trackingMode === "kanban"
-                            ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
-                            : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
-                        }`}
+                        className={`px-3.5 py-2 font-mono text-xs flex items-center gap-1.5 transition-colors ${trackingMode === "kanban"
+                          ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
+                          : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
+                          }`}
                       >
                         <Kanban className="w-3.5 h-3.5" />
                         <span>Board</span>
                       </button>
                       <button
                         onClick={() => setTrackingMode("list")}
-                        className={`px-3.5 py-2 font-mono text-xs flex items-center gap-1.5 border-l border-[#253048] transition-colors ${
-                          trackingMode === "list"
-                            ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
-                            : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
-                        }`}
+                        className={`px-3.5 py-2 font-mono text-xs flex items-center gap-1.5 border-l border-[#253048] transition-colors ${trackingMode === "list"
+                          ? "bg-[rgba(212,168,53,0.12)] text-[#d4a853] font-semibold"
+                          : "text-[#8a94a8] hover:text-[#e8e4dc] hover:bg-[#1a2235]"
+                          }`}
                       >
                         <ListFilter className="w-3.5 h-3.5" />
                         <span>List</span>
@@ -811,7 +807,7 @@ export default function App() {
 
                   {/* Shared Pipeline Bar */}
                   <div className="flex items-center gap-1 p-3 sm:p-5 bg-[#131926] border border-[#253048] rounded-xl overflow-x-auto shadow-sm">
-                    <div 
+                    <div
                       onClick={() => setTrackingMode("list")}
                       className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
                     >
@@ -825,7 +821,7 @@ export default function App() {
 
                     <div className="pipeline-connector hidden sm:block" />
 
-                    <div 
+                    <div
                       onClick={() => setTrackingMode("list")}
                       className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
                     >
@@ -839,7 +835,7 @@ export default function App() {
 
                     <div className="pipeline-connector hidden sm:block" />
 
-                    <div 
+                    <div
                       onClick={() => setTrackingMode("list")}
                       className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
                     >
@@ -853,7 +849,7 @@ export default function App() {
 
                     <div className="pipeline-connector hidden sm:block" />
 
-                    <div 
+                    <div
                       onClick={() => setTrackingMode("list")}
                       className="flex-1 text-center cursor-pointer p-2 rounded-lg hover:bg-[#1a2235] transition-all active:scale-95 min-w-[70px]"
                     >
@@ -886,17 +882,17 @@ export default function App() {
                     />
                   )}
                 </div>
-              } 
+              }
             />
 
             {/* 4. JOB SEARCH & DISCOVERY VIEW */}
-            <Route 
-              path="/jobs" 
-              element={<JobScraperView onImportJob={loadBoard} />} 
+            <Route
+              path="/jobs"
+              element={<JobScraperView onImportJob={loadBoard} />}
             />
-            <Route 
-              path="/discover" 
-              element={<Navigate to="/jobs" replace />} 
+            <Route
+              path="/discover"
+              element={<Navigate to="/jobs" replace />}
             />
 
             {/* Fallback to Dashboard */}

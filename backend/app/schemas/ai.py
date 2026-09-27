@@ -26,6 +26,24 @@ class SectionChecks(BaseModel):
     has_quantified_metrics: bool = Field(..., description="Action verbs with quantified metrics detected")
 
 
+class SkillCategory(BaseModel):
+    category_name: str = Field(..., description="Category: Languages, Frameworks, Cloud & DBs, Architecture")
+    matching: List[str] = Field(default_factory=list, description="Matched skills in this category")
+    missing: List[str] = Field(default_factory=list, description="Missing skills in this category")
+
+
+class BulletCritique(BaseModel):
+    original: str = Field(..., description="Original bullet text or phrase")
+    improved_xyz: str = Field(..., description="Rewritten bullet using Google XYZ formula (Accomplished X by doing Z as measured by Y)")
+    critique_reason: str = Field(..., description="Why the original was weak and what was improved")
+
+
+class RecruiterVerdict(BaseModel):
+    top_strengths: List[str] = Field(default_factory=list, description="Top 3 candidate hooks in a 6-second recruiter screen")
+    primary_risk: str = Field("", description="Single most likely objection from a recruiter")
+    mitigation_strategy: str = Field("", description="How to proactively neutralize the objection in outreach or interviews")
+
+
 class ResumeMatchResponse(BaseModel):
     match_score: int = Field(..., description="Overall ATS composite match score (0-100)")
     fit_level: str = Field(..., description="ATS fit tier / ranking tier")
@@ -40,7 +58,9 @@ class ResumeMatchResponse(BaseModel):
     section_checks: Optional[SectionChecks] = Field(None, description="ATS parseability and formatting checklist")
     detected_years_candidate: Optional[int] = Field(None, description="Candidate years of experience detected")
     detected_years_required: Optional[int] = Field(None, description="Job required years of experience detected")
-    bullet_critiques: Optional[List[Dict[str, str]]] = Field(default_factory=list, description="AI bullet point rewrites following the Google XYZ formula")
+    categorized_skills: Optional[List[SkillCategory]] = Field(default_factory=list, description="Categorized skill matrix (Languages, Frameworks, Cloud/Databases, Architecture)")
+    bullet_critiques: Optional[List[BulletCritique]] = Field(default_factory=list, description="AI bullet point rewrites following the Google XYZ formula")
+    recruiter_verdict: Optional[RecruiterVerdict] = Field(None, description="6-second recruiter screen verdict & objection handling")
     strategic_interview_tips: Optional[List[str]] = Field(default_factory=list, description="Tailored interview discussion topics and strategic positioning")
 
 

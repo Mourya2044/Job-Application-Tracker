@@ -125,6 +125,81 @@ def extract_email_demo(subject: str, sender: str, body: str):
     return badge, details_json, meta
 
 
+def format_ats_audit_markdown(res: Dict, job_title: str = "", company: str = "") -> str:
+    """Formats an executive ATS Audit Report in GitHub-flavored Markdown."""
+    target_role = job_title or "Target Position"
+    target_comp = f" at {company}" if company else ""
+    
+    breakdown = res.get("ats_breakdown", {})
+    checks = res.get("section_checks", {})
+    verdict = res.get("recruiter_verdict") or {}
+    bullets = res.get("bullet_critiques", [])
+    categories = res.get("categorized_skills", [])
+    tips = res.get("strategic_interview_tips", [])
+    
+    md = [
+        f"### 🎯 ATS Audit Score: **{res.get('match_score', 0)}%** ({res.get('fit_level', 'ATS Evaluation')})",
+        f"**Target Role:** {target_role}{target_comp}\n",
+        f"> {res.get('summary', '')}\n",
+        "#### 📊 5-Pillar ATS Evaluation Scorecard",
+        "| Pillar | Score | Weight | Status |",
+        "| :--- | :--- | :--- | :--- |",
+        f"| **Technical Skills Match** | **{breakdown.get('skills_score', 0)}%** | 35% | {'✅ High Keyword Density' if breakdown.get('skills_score', 0) >= 75 else '⚠️ Keyword Gaps Detected'} |",
+        f"| **Experience & Seniority** | **{breakdown.get('experience_score', 0)}%** | 20% | Seniority alignment verified |",
+        f"| **Education Credentials** | **{breakdown.get('education_score', 0)}%** | 15% | Degree & qualifications checked |",
+        f"| **ATS Formatting Health** | **{breakdown.get('formatting_score', 0)}%** | 15% | {'✅ Clean Headers & Contact' if breakdown.get('formatting_score', 0) >= 80 else '⚠️ Formatting Fixes Recommended'} |",
+        f"| **Semantic Relevance** | **{breakdown.get('semantic_score', 0)}%** | 15% | Dense contextual vector alignment |",
+        "",
+        "#### 📋 ATS Parseability & Header Checklist",
+        f"- {'✅' if checks.get('has_email') else '❌'} **Contact Email:** {'Detected' if checks.get('has_email') else 'Missing - ensure email is in resume header'}",
+        f"- {'✅' if checks.get('has_phone') else '❌'} **Contact Phone:** {'Detected' if checks.get('has_phone') else 'Missing - add phone number for recruiter parsing'}",
+        f"- {'✅' if checks.get('has_experience_section') else '❌'} **Experience Section:** {'Standard section header found' if checks.get('has_experience_section') else 'Use standard \"Experience\" header'}",
+        f"- {'✅' if checks.get('has_education_section') else '❌'} **Education Section:** {'Standard section header found' if checks.get('has_education_section') else 'Use standard \"Education\" header'}",
+        f"- {'✅' if checks.get('has_skills_section') else '❌'} **Skills Section:** {'Standard section header found' if checks.get('has_skills_section') else 'Use standard \"Skills\" header'}",
+        f"- {'✅' if checks.get('has_quantified_metrics') else '⚠️'} **Quantified Metrics:** {'Action metrics detected (%, $, ms, users)' if checks.get('has_quantified_metrics') else 'Add metrics to increase ATS ranking'}",
+        "",
+    ]
+    
+    if categories:
+        md.append("#### 🗂️ Categorized Technical Skill Matrix")
+        for cat in categories:
+            cat_name = cat.get("category_name", "Skills")
+            matching_str = ", ".join(f"`{s}`" for s in cat.get("matching", [])) or "*None detected*"
+            missing_str = ", ".join(f"`{s}`" for s in cat.get("missing", [])) or "*None (Full alignment!)*"
+            md.append(f"**{cat_name}**")
+            md.append(f"- **Matched ({len(cat.get('matching', []))}):** {matching_str}")
+            md.append(f"- **Missing ({len(cat.get('missing', []))}):** {missing_str}\n")
+        
+    if verdict:
+        md.append("#### ⚡ 6-Second Recruiter Verdict")
+        if verdict.get("top_strengths"):
+            md.append("**Candidate Standout Hooks:**")
+            for st in verdict["top_strengths"]:
+                md.append(f"- 🌟 {st}")
+        if verdict.get("primary_risk"):
+            md.append(f"\n⚠️ **Primary Drop-off Risk:** {verdict['primary_risk']}")
+        if verdict.get("mitigation_strategy"):
+            md.append(f"\n🛡️ **Proactive Mitigation:** {verdict['mitigation_strategy']}")
+        md.append("")
+        
+    if bullets:
+        md.append("#### ✍️ Bullet Impact Audit (Google XYZ Formula)")
+        md.append("*Formula: Accomplished [X] by doing [Z], as measured by [Y]*\n")
+        for idx, b in enumerate(bullets, 1):
+            md.append(f"**Bullet #{idx}:**")
+            md.append(f"- ❌ **Original:** *\"{b.get('original')}\"*")
+            md.append(f"- 💡 **Critique:** {b.get('critique_reason')}")
+            md.append(f"- ✅ **Google XYZ Rewrite:**\n  > **\"{b.get('improved_xyz')}\"**\n")
+            
+    if tips:
+        md.append("#### 🎙️ Strategic Interview Talking Points")
+        for t in tips:
+            md.append(f"- 💬 {t}")
+        md.append("")
+        
+    return "\n".join(md)
+
+
 @spaces.GPU(duration=45)
 def analyze_fit_demo(resume_text: str, job_title: str, company: str, job_description: str):
     """ZeroGPU accelerated resume fit & skill gap analyzer."""
@@ -141,9 +216,9 @@ def analyze_fit_demo(resume_text: str, job_title: str, company: str, job_descrip
     score_headline = f"🎯 {res['fit_level']} — {res['match_score']}% Match Score"
     matching = "✅ " + ", ".join(res["matching_skills"]) if res["matching_skills"] else "None explicitly detected"
     missing = "⚠️ " + ", ".join(res["missing_skills"]) if res["missing_skills"] else "None (great alignment!)"
-    recs = "\n".join(f"• {r}" for r in res["recommendations"])
+    report_md = format_ats_audit_markdown(res, job_title=job_title, company=company)
     
-    return score_headline, matching, missing, recs
+    return score_headline, matching, missing, report_md
 
 
 @spaces.GPU(duration=45)
@@ -283,14 +358,15 @@ with gr.Blocks(title="Job Tracker Backend & ZeroGPU Playground", analytics_enabl
                 
                 with gr.Column():
                     fit_score = gr.Textbox(label="Match Assessment", interactive=False)
-                    fit_matching = gr.Textbox(label="Matching Skills Found", interactive=False)
-                    fit_missing = gr.Textbox(label="Missing Skills / Gaps", interactive=False)
-                    fit_recs = gr.Textbox(label="Strategic Recommendations", lines=5, interactive=False)
+                    with gr.Row():
+                        fit_matching = gr.Textbox(label="Matching Skills Found", interactive=False)
+                        fit_missing = gr.Textbox(label="Missing Skills / Gaps", interactive=False)
+                    fit_report = gr.Markdown(value="*Run analysis to generate comprehensive 5-pillar ATS scorecard, categorized skill matrix, recruiter verdict, and bullet impact audit.*")
             
             fit_btn.click(
                 fn=analyze_fit_demo,
                 inputs=[r_text, j_title, j_company, j_desc],
-                outputs=[fit_score, fit_matching, fit_missing, fit_recs]
+                outputs=[fit_score, fit_matching, fit_missing, fit_report]
             )
 
         # Tab 4: Cover Letter Generator

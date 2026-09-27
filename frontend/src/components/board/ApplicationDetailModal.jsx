@@ -18,7 +18,11 @@ import {
   Send,
   FileText,
   FileUp,
-  Cpu
+  Cpu,
+  ShieldAlert,
+  AlertTriangle,
+  Lightbulb,
+  ArrowRight
 } from "lucide-react"
 import { toast } from "sonner"
 import { fetchApi } from "@/config/api"
@@ -52,6 +56,14 @@ export function ApplicationDetailModal({
   const [coverResult, setCoverResult] = useState(null)
   const [copiedLetter, setCopiedLetter] = useState(false)
   const [copiedOutreach, setCopiedOutreach] = useState(false)
+  const [copiedBulletIdx, setCopiedBulletIdx] = useState(null)
+
+  const handleCopyBullet = (text, idx) => {
+    navigator.clipboard.writeText(text)
+    setCopiedBulletIdx(idx)
+    toast.success("Google XYZ bullet copied to clipboard")
+    setTimeout(() => setCopiedBulletIdx(null), 2000)
+  }
 
   useEffect(() => {
     if (application) {
@@ -653,39 +665,196 @@ export function ApplicationDetailModal({
                       </div>
                     )}
 
-                    {fitResult.matching_skills?.length > 0 && (
-                      <div>
-                        <div className="text-[10px] font-mono uppercase text-[#4ade80] mb-1.5">
-                          Matching Qualifications ({fitResult.matching_skills.length})
+                    {/* Categorized Technical Skill Matrix or Flat Skills */}
+                    {fitResult.categorized_skills?.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px] font-mono text-[#8a94a8]">
+                          <span>Categorized Skill Matrix</span>
+                          <span className="text-[#60a5fa]">{fitResult.matching_skills?.length || 0} Matched • {fitResult.missing_skills?.length || 0} Gaps</span>
                         </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {fitResult.matching_skills.map((s, idx) => (
-                            <span
-                              key={idx}
-                              className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.25)]"
-                            >
-                              ✓ {s}
-                            </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {fitResult.categorized_skills.map((cat, idx) => (
+                            <div key={idx} className="bg-[#080b12] border border-[#1a2235] rounded-lg p-2.5 space-y-1.5">
+                              <div className="text-[10px] font-mono font-semibold text-[#e8e4dc]">
+                                {cat.category_name}
+                              </div>
+                              {cat.matching?.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {cat.matching.map((s, sIdx) => (
+                                    <span key={sIdx} className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.25)]">
+                                      ✓ {s}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {cat.missing?.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {cat.missing.map((s, sIdx) => (
+                                    <span key={sIdx} className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(251,191,36,0.1)] text-[#fbbf24] border border-[rgba(251,191,36,0.25)]">
+                                      ! {s}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {fitResult.matching_skills?.length > 0 && (
+                          <div>
+                            <div className="text-[10px] font-mono uppercase text-[#4ade80] mb-1.5">
+                              Matching Qualifications ({fitResult.matching_skills.length})
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {fitResult.matching_skills.map((s, idx) => (
+                                <span
+                                  key={idx}
+                                  className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.25)]"
+                                >
+                                  ✓ {s}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {fitResult.missing_skills?.length > 0 && (
+                          <div>
+                            <div className="text-[10px] font-mono uppercase text-[#fbbf24] mb-1.5">
+                              Missing Requirements to Address ({fitResult.missing_skills.length})
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {fitResult.missing_skills.map((s, idx) => (
+                                <span
+                                  key={idx}
+                                  className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(251,191,36,0.1)] text-[#fbbf24] border border-[rgba(251,191,36,0.25)]"
+                                >
+                                  ! {s}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* ⚡ 6-Second Recruiter Verdict */}
+                    {fitResult.recruiter_verdict && (
+                      <div className="bg-[#080b12] border border-[#1a2235] rounded-lg p-3 space-y-2.5">
+                        <div className="flex items-center justify-between text-[11px] font-mono text-[#8a94a8]">
+                          <span className="flex items-center gap-1.5 text-[#e8e4dc] font-semibold">
+                            <Sparkles className="w-3.5 h-3.5 text-[#d4a853]" />
+                            6-Second Recruiter Verdict
+                          </span>
+                          <span className="text-[10px] text-[#556178]">First-Pass Screen</span>
+                        </div>
+
+                        {fitResult.recruiter_verdict.top_strengths?.length > 0 && (
+                          <div className="space-y-1">
+                            <div className="text-[10px] font-mono text-[#4ade80] uppercase">Top Standout Hooks</div>
+                            <ul className="text-xs text-[#e8e4dc] space-y-0.5 list-disc pl-4 font-sans">
+                              {fitResult.recruiter_verdict.top_strengths.map((str, sIdx) => (
+                                <li key={sIdx}>{str}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-[#1a2235]">
+                          {fitResult.recruiter_verdict.primary_risk && (
+                            <div className="bg-[#1a1215] border border-[#fb7185]/30 rounded p-2">
+                              <div className="text-[10px] font-mono text-[#fb7185] flex items-center gap-1 mb-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                Drop-off Risk
+                              </div>
+                              <p className="text-xs text-[#fda4af] leading-relaxed">
+                                {fitResult.recruiter_verdict.primary_risk}
+                              </p>
+                            </div>
+                          )}
+
+                          {fitResult.recruiter_verdict.mitigation_strategy && (
+                            <div className="bg-[#121915] border border-[#4ade80]/30 rounded p-2">
+                              <div className="text-[10px] font-mono text-[#4ade80] flex items-center gap-1 mb-1">
+                                <ShieldAlert className="w-3 h-3" />
+                                Proactive Neutralization
+                              </div>
+                              <p className="text-xs text-[#86efac] leading-relaxed">
+                                {fitResult.recruiter_verdict.mitigation_strategy}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ✍️ Bullet Impact Audit (Google XYZ Formula) */}
+                    {fitResult.bullet_critiques?.length > 0 && (
+                      <div className="bg-[#080b12] border border-[#1a2235] rounded-lg p-3 space-y-2.5">
+                        <div className="flex items-center justify-between text-[11px] font-mono text-[#8a94a8]">
+                          <span className="flex items-center gap-1.5 text-[#e8e4dc] font-semibold">
+                            <FileText className="w-3.5 h-3.5 text-[#60a5fa]" />
+                            Bullet Impact Audit (Google XYZ Formula)
+                          </span>
+                          <span className="text-[10px] text-[#8a94a8]">Accomplished X by Z, measured by Y</span>
+                        </div>
+
+                        <div className="space-y-3">
+                          {fitResult.bullet_critiques.map((bullet, bIdx) => (
+                            <div key={bIdx} className="bg-[#0c1019] border border-[#253048] rounded-lg p-2.5 space-y-1.5 text-xs">
+                              <div className="text-[#8a94a8] flex items-start gap-1.5">
+                                <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[#fb7185]/15 text-[#fb7185] border border-[#fb7185]/30 shrink-0 mt-0.5">
+                                  Before
+                                </span>
+                                <span className="line-through decoration-[#fb7185]/40 italic">{bullet.original}</span>
+                              </div>
+
+                              <div className="text-[11px] text-[#fbbf24] pl-2 border-l-2 border-[#fbbf24]/50 py-0.5 font-sans">
+                                💡 {bullet.critique_reason}
+                              </div>
+
+                              <div className="bg-[#0f172a] border border-[#38bdf8]/30 rounded p-2 text-[#e2e8f0] flex items-start justify-between gap-2">
+                                <div className="space-y-1">
+                                  <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30 inline-block">
+                                    Google XYZ Rewrite
+                                  </span>
+                                  <p className="font-medium text-[#f8fafc] leading-relaxed">
+                                    "{bullet.improved_xyz}"
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyBullet(bullet.improved_xyz, bIdx)}
+                                  className="p-1 rounded hover:bg-[#1e293b] text-[#8a94a8] hover:text-[#e8e4dc] transition-colors shrink-0"
+                                  title="Copy XYZ bullet"
+                                >
+                                  {copiedBulletIdx === bIdx ? (
+                                    <CheckCheck className="w-3.5 h-3.5 text-[#4ade80]" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {fitResult.missing_skills?.length > 0 && (
-                      <div>
-                        <div className="text-[10px] font-mono uppercase text-[#fbbf24] mb-1.5">
-                          Missing Requirements to Address ({fitResult.missing_skills.length})
+                    {/* 🎙️ Strategic Interview Talking Points */}
+                    {fitResult.strategic_interview_tips?.length > 0 && (
+                      <div className="bg-[#080b12] border border-[#1a2235] rounded-lg p-3 space-y-1.5">
+                        <div className="text-[11px] font-mono text-[#a78bfa] flex items-center gap-1.5 uppercase font-semibold">
+                          <Lightbulb className="w-3.5 h-3.5 text-[#a78bfa]" />
+                          Strategic Interview Talking Points
                         </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {fitResult.missing_skills.map((s, idx) => (
-                            <span
-                              key={idx}
-                              className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(251,191,36,0.1)] text-[#fbbf24] border border-[rgba(251,191,36,0.25)]"
-                            >
-                              ! {s}
-                            </span>
+                        <ul className="text-xs text-[#c4b5fd] space-y-1 list-disc pl-4 font-sans leading-relaxed">
+                          {fitResult.strategic_interview_tips.map((tip, tIdx) => (
+                            <li key={tIdx}>{tip}</li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     )}
 

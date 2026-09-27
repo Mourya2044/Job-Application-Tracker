@@ -625,40 +625,105 @@ export function JobScraperView({ onImportJob }) {
                     {fitResult.summary}
                   </p>
 
-                  {fitResult.matching_skills?.length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-mono uppercase text-[#4ade80] mb-1.5">
-                        Matching Qualifications ({fitResult.matching_skills.length})
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {fitResult.matching_skills.map((s, idx) => (
-                          <span
-                            key={idx}
-                            className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.25)]"
-                          >
-                            ✓ {s}
-                          </span>
-                        ))}
+                  {fitResult.ats_breakdown && (
+                    <div className="bg-[#080b12] border border-[#1a2235] rounded-lg p-2.5 space-y-2">
+                      <div className="text-[10px] font-mono text-[#8a94a8]">ATS Evaluation Pillars</div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        <div className="bg-[#0f1524] rounded p-1.5 border border-[#253048]/50">
+                          <div className="text-[9px] text-[#8a94a8]">Hard Skills</div>
+                          <div className="font-mono text-xs font-bold text-[#4ade80]">{fitResult.ats_breakdown.skills_score}%</div>
+                        </div>
+                        <div className="bg-[#0f1524] rounded p-1.5 border border-[#253048]/50">
+                          <div className="text-[9px] text-[#8a94a8]">Experience</div>
+                          <div className="font-mono text-xs font-bold text-[#60a5fa]">{fitResult.ats_breakdown.experience_score}%</div>
+                        </div>
+                        <div className="bg-[#0f1524] rounded p-1.5 border border-[#253048]/50">
+                          <div className="text-[9px] text-[#8a94a8]">Education</div>
+                          <div className="font-mono text-xs font-bold text-[#a78bfa]">{fitResult.ats_breakdown.education_score}%</div>
+                        </div>
+                        <div className="bg-[#0f1524] rounded p-1.5 border border-[#253048]/50">
+                          <div className="text-[9px] text-[#8a94a8]">ATS Format</div>
+                          <div className="font-mono text-xs font-bold text-[#fbbf24]">{fitResult.ats_breakdown.formatting_score}%</div>
+                        </div>
+                        <div className="bg-[#0f1524] rounded p-1.5 border border-[#253048]/50">
+                          <div className="text-[9px] text-[#8a94a8]">Semantic</div>
+                          <div className="font-mono text-xs font-bold text-[#38bdf8]">{fitResult.ats_breakdown.semantic_score}%</div>
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {fitResult.missing_skills?.length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-mono uppercase text-[#fbbf24] mb-1.5">
-                        Missing Requirements to Address ({fitResult.missing_skills.length})
+                  {fitResult.categorized_skills?.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-mono uppercase text-[#8a94a8]">
+                        Categorized Skill Matrix
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {fitResult.missing_skills.map((s, idx) => (
-                          <span
-                            key={idx}
-                            className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(251,191,36,0.1)] text-[#fbbf24] border border-[rgba(251,191,36,0.25)]"
-                          >
-                            ! {s}
-                          </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {fitResult.categorized_skills.map((cat, idx) => (
+                          <div key={idx} className="bg-[#080b12] border border-[#1a2235] rounded-lg p-2 space-y-1">
+                            <div className="text-[10px] font-mono font-semibold text-[#e8e4dc]">
+                              {cat.category_name}
+                            </div>
+                            {cat.matching?.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {cat.matching.map((s, sIdx) => (
+                                  <span key={sIdx} className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.25)]">
+                                    ✓ {s}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {cat.missing?.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {cat.missing.map((s, sIdx) => (
+                                  <span key={sIdx} className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(251,191,36,0.1)] text-[#fbbf24] border border-[rgba(251,191,36,0.25)]">
+                                    ! {s}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         ))}
                       </div>
                     </div>
+                  ) : (
+                    <>
+                      {fitResult.matching_skills?.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-mono uppercase text-[#4ade80] mb-1.5">
+                            Matching Qualifications ({fitResult.matching_skills.length})
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {fitResult.matching_skills.map((s, idx) => (
+                              <span
+                                key={idx}
+                                className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.25)]"
+                              >
+                                ✓ {s}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {fitResult.missing_skills?.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-mono uppercase text-[#fbbf24] mb-1.5">
+                            Missing Requirements to Address ({fitResult.missing_skills.length})
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {fitResult.missing_skills.map((s, idx) => (
+                              <span
+                                key={idx}
+                                className="font-mono text-[10px] px-2 py-0.5 rounded bg-[rgba(251,191,36,0.1)] text-[#fbbf24] border border-[rgba(251,191,36,0.25)]"
+                              >
+                                ! {s}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {fitResult.recommendations?.length > 0 && (
