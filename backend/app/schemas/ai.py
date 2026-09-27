@@ -32,3 +32,15 @@ class CoverLetterResponse(BaseModel):
     outreach_message: str
     tone: str
     skills_highlighted: List[str]
+
+
+class ParsedResumeResponse(BaseModel):
+    raw_text: str = Field(..., description="Full cleaned text extracted from resume PDF")
+    candidate_name: str = Field("", description="Detected candidate name")
+    email: str = Field("", description="Extracted candidate email address")
+    phone: str = Field("", description="Extracted phone number")
+    links: List[str] = Field(default_factory=list, description="Extracted URLs, portfolio, GitHub, or LinkedIn links")
+    skills: List[str] = Field(default_factory=list, description="Extracted technical skills and competencies")
+    education: List[str] = Field(default_factory=list, description="Extracted education credentials or degrees")
+    experience_roles: List[str] = Field(default_factory=list, description="Detected job titles or past experience roles")
+    summary: str = Field(..., description="Executive summary preview of candidate profile")

@@ -49,7 +49,12 @@ from app.main import (
 )
 from app.db.database import init_db
 from app.services.status_extractor import extract_email_status_event
-from app.services.ai_advisor import analyze_resume_fit, generate_tailored_cover_letter
+from app.services.ai_advisor import (
+    analyze_resume_fit,
+    generate_tailored_cover_letter,
+    extract_text_from_pdf,
+    extract_resume_profile_from_pdf,
+)
 
 # Initialize database schema and ensure all tables/columns exist immediately
 try:
@@ -244,11 +249,13 @@ with gr.Blocks(title="Job Tracker Backend & ZeroGPU Playground", analytics_enabl
             
             with gr.Row():
                 with gr.Column():
+                    r_pdf = gr.File(label="📄 Upload Candidate Resume (PDF)", file_types=[".pdf"], file_count="single")
                     r_text = gr.Textbox(
-                        label="Candidate Resume / Skills",
+                        label="Candidate Resume / Extracted Text",
                         lines=6,
                         value="Full-stack engineer with 4 years experience in Python, FastAPI, React, PostgreSQL, Docker, and AWS. Built distributed background workers and REST APIs."
                     )
+                    r_pdf.change(fn=lambda f: extract_text_from_pdf(f.name if hasattr(f, "name") else str(f)) if f else "", inputs=[r_pdf], outputs=[r_text])
                     j_title = gr.Textbox(label="Job Title", value="Senior Backend Engineer")
                     j_company = gr.Textbox(label="Company Name", value="Stripe")
                     j_desc = gr.Textbox(
@@ -277,11 +284,13 @@ with gr.Blocks(title="Job Tracker Backend & ZeroGPU Playground", analytics_enabl
             
             with gr.Row():
                 with gr.Column():
+                    cl_pdf = gr.File(label="📄 Upload Candidate Resume (PDF)", file_types=[".pdf"], file_count="single")
                     cl_resume = gr.Textbox(
                         label="Candidate Background / Resume Summary",
                         lines=5,
                         value="Experienced software engineer specializing in Python, React, cloud microservices, and high-performance databases."
                     )
+                    cl_pdf.change(fn=lambda f: extract_text_from_pdf(f.name if hasattr(f, "name") else str(f)) if f else "", inputs=[cl_pdf], outputs=[cl_resume])
                     cl_title = gr.Textbox(label="Target Job Title", value="Software Engineer")
                     cl_company = gr.Textbox(label="Target Company", value="Linear")
                     cl_desc = gr.Textbox(

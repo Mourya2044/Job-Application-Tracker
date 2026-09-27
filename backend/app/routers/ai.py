@@ -1,16 +1,86 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.schemas.ai import (
     ResumeMatchRequest,
     ResumeMatchResponse,
     CoverLetterRequest,
     CoverLetterResponse,
+    ParsedResumeResponse,
 )
-from app.services.ai_advisor import analyze_resume_fit, generate_tailored_cover_letter
+from app.services.ai_advisor import (
+    analyze_resume_fit,
+    generate_tailored_cover_letter,
+    extract_resume_profile_from_pdf,
+    extract_text_from_pdf,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+@router.post("/parse-resume-pdf", response_model=ParsedResumeResponse)
+async def parse_resume_pdf_endpoint(file: UploadFile = File(...)):
+    """
+    Parses an uploaded resume PDF, extracting clean raw text and structured candidate
+    information (name, contact, skills, education, roles, summary) via GLiNER2 zero-shot AI.
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files (.pdf) are supported.")
+
+    try:
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
+
+        profile = extract_resume_profile_from_pdf(contents)
+        if not profile.get("raw_text"):
+            raise HTTPException(status_code=422, detail="Could not extract readable text from the uploaded PDF.")
+
+        return ParsedResumeResponse(**profile)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error parsing resume PDF: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to process resume PDF: {str(e)}")
+
+
+@router.post("/match-resume-pdf", response_model=ResumeMatchResponse)
+async def match_resume_pdf_endpoint(
+    file: UploadFile = File(...),
+    job_description: str = Form(...),
+    job_title: Optional[str] = Form(""),
+    company: Optional[str] = Form(""),
+):
+    """
+    Evaluates an uploaded candidate resume PDF against a job description, computing fit score,
+    matching qualifications, missing requirements, and strategic recommendations via AI models.
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files (.pdf) are supported.")
+
+    try:
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="Uploaded PDF file is empty.")
+
+        resume_text = extract_text_from_pdf(contents)
+        if not resume_text:
+            raise HTTPException(status_code=422, detail="Could not extract readable text from the uploaded PDF.")
+
+        result = analyze_resume_fit(
+            resume_text=resume_text,
+            job_description=job_description,
+            job_title=job_title or "",
+            company=company or "",
+        )
+        return ResumeMatchResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error matching resume PDF: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to analyze resume PDF: {str(e)}")
 
 
 @router.post("/match-resume", response_model=ResumeMatchResponse)
@@ -74,5 +144,6 @@ def ai_status_endpoint():
             "entity_extractor": "fastino/gliner2-multi-v1",
             "semantic_matching": "sentence-transformers/all-MiniLM-L6-v2",
             "cover_letter_generator": "HuggingFaceTB/SmolLM2-135M-Instruct",
+            "pdf_parser": "pypdf + GLiNER2",
         },
     }

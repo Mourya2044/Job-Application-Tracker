@@ -1,7 +1,8 @@
+import io
 import os
 import re
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import BinaryIO, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,144 @@ def extract_skills_from_text(text: str) -> List[str]:
     return deduped
 
 
+def extract_text_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> str:
+    """
+    Extracts and normalizes clean text from a PDF file path, raw bytes, or stream.
+    """
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        logger.error("pypdf is not installed. Please install pypdf to parse PDF files.")
+        return ""
+
+    try:
+        if isinstance(pdf_source, bytes):
+            stream = io.BytesIO(pdf_source)
+        elif isinstance(pdf_source, str):
+            if os.path.exists(pdf_source):
+                stream = open(pdf_source, "rb")
+            else:
+                logger.error("PDF file path does not exist: %s", pdf_source)
+                return ""
+        else:
+            stream = pdf_source
+
+        reader = PdfReader(stream)
+        pages_text = []
+        for i, page in enumerate(reader.pages):
+            try:
+                page_str = page.extract_text()
+                if page_str:
+                    pages_text.append(page_str)
+            except Exception as e:
+                logger.warning("Error reading PDF page %d: %s", i + 1, e)
+
+        full_text = "\n\n".join(pages_text)
+        # Clean up hyphenated line wraps (e.g. "distrib-\nuted" -> "distributed")
+        cleaned = re.sub(r"(\w+)-\n(\w+)", r"\1\2", full_text)
+        # Normalize excessive whitespace and linebreaks
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+        cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
+        return cleaned.strip()
+    except Exception as e:
+        logger.error("Failed to extract text from PDF: %s", e)
+        return ""
+
+
+def extract_resume_profile_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> Dict:
+    """
+    Extracts text from a PDF resume and structures it into candidate profile data
+    (name, email, phone, links, skills, education, roles, summary) using AI extraction.
+    """
+    raw_text = extract_text_from_pdf(pdf_source)
+    if not raw_text:
+        return {
+            "raw_text": "",
+            "candidate_name": "",
+            "email": "",
+            "phone": "",
+            "links": [],
+            "skills": [],
+            "education": [],
+            "experience_roles": [],
+            "summary": "No readable text found in PDF.",
+        }
+
+    # 1. Contact & Link Extraction (Regex)
+    email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", raw_text)
+    email = email_match.group(0) if email_match else ""
+
+    phone_match = re.search(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", raw_text)
+    phone = phone_match.group(0) if phone_match else ""
+
+    links = re.findall(
+        r"https?://(?:www\.)?(?:linkedin\.com/in/[a-zA-Z0-9_-]+|github\.com/[a-zA-Z0-9_-]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/[^\s]*)",
+        raw_text,
+    )
+    short_links = re.findall(r"(?:linkedin\.com/in/[a-zA-Z0-9_-]+|github\.com/[a-zA-Z0-9_-]+)", raw_text)
+    for sl in short_links:
+        full_l = "https://" + sl
+        if full_l not in links:
+            links.append(full_l)
+
+    # 2. GLiNER2 Model Extraction for structured entities
+    candidate_name = ""
+    education_items = []
+    experience_roles = []
+
+    gliner = get_gliner_model()
+    if gliner:
+        try:
+            schema = (
+                gliner.create_schema()
+                .entities({
+                    "candidate_name": "Full name of the candidate or person",
+                    "education": "University, college, degree, or major",
+                    "job_title": "Professional job title or position held",
+                })
+            )
+            extraction = gliner.extract(raw_text[:1500], schema)
+            entities = extraction.get("entities", {})
+
+            names = entities.get("candidate_name", [])
+            if names:
+                candidate_name = names[0].strip()
+
+            education_items = list(dict.fromkeys(entities.get("education", [])))[:5]
+            experience_roles = list(dict.fromkeys(entities.get("job_title", [])))[:5]
+        except Exception as e:
+            logger.debug("GLiNER2 resume profile extraction error: %s", e)
+
+    # Fallback for candidate name from first line if not detected
+    if not candidate_name:
+        for line in raw_text.split("\n")[:3]:
+            candidate_line = line.strip()
+            words = candidate_line.split()
+            if 2 <= len(words) <= 4 and "@" not in candidate_line and not any(c.isdigit() for c in candidate_line):
+                candidate_name = candidate_line.title()
+                break
+
+    # 3. Extract all skills and qualifications using GLiNER2 AI
+    skills = extract_skills_from_text(raw_text)
+
+    # 4. Generate candidate summary preview
+    name_str = candidate_name or "Candidate"
+    skills_preview = ", ".join(skills[:6]) if skills else "general software engineering"
+    summary = f"{name_str} with expertise in {skills_preview}. Extracted {len(skills)} technical skills from resume."
+
+    return {
+        "raw_text": raw_text,
+        "candidate_name": candidate_name,
+        "email": email,
+        "phone": phone,
+        "links": links,
+        "skills": skills,
+        "education": education_items,
+        "experience_roles": experience_roles,
+        "summary": summary,
+    }
+
+
 def compute_semantic_embedding(text: str):
     """Computes normalized dense contextual embedding using all-MiniLM-L6-v2."""
     tok, model = get_similarity_model()
@@ -210,15 +349,19 @@ def calculate_semantic_similarity(emb1, emb2) -> float:
 
 @spaces.GPU(duration=60)
 def analyze_resume_fit(
-    resume_text: str,
-    job_description: str,
+    resume_text: str = "",
+    job_description: str = "",
     job_title: str = "",
-    company: str = ""
+    company: str = "",
+    resume_pdf: Optional[Union[bytes, str]] = None,
 ) -> Dict:
     """
-    Computes a comprehensive match analysis between candidate resume and job requirements
-    using Hugging Face AI models (GLiNER2 + all-MiniLM-L6-v2 embeddings).
+    Computes a comprehensive match analysis between candidate resume (text or PDF)
+    and job requirements using Hugging Face AI models (GLiNER2 + all-MiniLM-L6-v2 embeddings).
     """
+    if resume_pdf is not None and not resume_text:
+        resume_text = extract_text_from_pdf(resume_pdf)
+
     resume_skills = extract_skills_from_text(resume_text)
     job_skills = extract_skills_from_text(job_description)
 
@@ -409,16 +552,21 @@ def _clean_and_personalize_cover_letter(
 
 @spaces.GPU(duration=60)
 def generate_tailored_cover_letter(
-    resume_text: str,
-    job_title: str,
-    company: str,
+    resume_text: str = "",
+    job_title: str = "",
+    company: str = "",
     job_description: str = "",
-    tone: str = "professional"
+    tone: str = "professional",
+    resume_pdf: Optional[Union[bytes, str]] = None,
 ) -> Dict[str, str]:
     """
     Generates a tailored, compelling cover letter and recruiter outreach note
     using the Hugging Face instruction-tuned AI model on HF Spaces ZeroGPU.
+    Accepts candidate resume text or PDF source.
     """
+    if resume_pdf is not None and not resume_text:
+        resume_text = extract_text_from_pdf(resume_pdf)
+
     resume_skills = extract_skills_from_text(resume_text)
     job_skills = extract_skills_from_text(job_description)
     matching_skills = [s for s in job_skills if s.lower() in {r.lower() for r in resume_skills}]

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { 
   X, 
   Check, 
@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Send,
   FileText,
+  FileUp,
   Cpu
 } from "lucide-react"
 import { toast } from "sonner"
@@ -65,10 +66,45 @@ export function ApplicationDetailModal({
 
   if (!isOpen || !application) return null
 
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false)
+  const pdfInputRef = useRef(null)
+
   const handleResumeChange = (e) => {
     const val = e.target.value
     setResumeText(val)
     localStorage.setItem("job_tracker_user_resume", val)
+  }
+
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      toast.error("Please upload a PDF file (.pdf)")
+      return
+    }
+
+    setIsUploadingPdf(true)
+    const formData = new FormData()
+    formData.append("file", file)
+
+    try {
+      const data = await fetchApi("/api/ai/parse-resume-pdf", {
+        method: "POST",
+        body: formData,
+      })
+      if (data?.raw_text) {
+        setResumeText(data.raw_text)
+        localStorage.setItem("job_tracker_user_resume", data.raw_text)
+        const nameMsg = data.candidate_name ? ` for ${data.candidate_name}` : ""
+        const count = data.skills?.length || 0
+        toast.success(`Resume parsed${nameMsg}! Found ${count} skills.`)
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to extract text from resume PDF")
+    } finally {
+      setIsUploadingPdf(false)
+      if (e.target) e.target.value = ""
+    }
   }
 
   const handleAnalyzeFit = async () => {
@@ -488,13 +524,40 @@ export function ApplicationDetailModal({
                   <label className="font-mono text-xs uppercase tracking-wider text-[#556178]">
                     Candidate Skills & Resume Profile
                   </label>
-                  <span className="font-mono text-[10px] text-[#8a94a8]">Saved locally</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      ref={pdfInputRef}
+                      accept=".pdf"
+                      onChange={handlePdfUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => pdfInputRef.current?.click()}
+                      disabled={isUploadingPdf}
+                      className="font-mono text-[10px] text-[#d4a853] hover:text-[#e6c06a] bg-[rgba(212,168,53,0.1)] hover:bg-[rgba(212,168,53,0.18)] px-2 py-0.5 rounded border border-[rgba(212,168,53,0.3)] flex items-center gap-1 transition-all disabled:opacity-50"
+                    >
+                      {isUploadingPdf ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          <span>Extracting PDF...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileUp className="w-3 h-3" />
+                          <span>Upload PDF</span>
+                        </>
+                      )}
+                    </button>
+                    <span className="font-mono text-[10px] text-[#8a94a8]">Saved locally</span>
+                  </div>
                 </div>
                 <textarea
                   rows={3}
                   value={resumeText}
                   onChange={handleResumeChange}
-                  placeholder="Paste your resume summary, tech skills, and key projects..."
+                  placeholder="Paste your resume summary, tech skills, or upload a resume PDF above..."
                   className="w-full bg-[#0c1019] border border-[#253048] rounded-lg p-3 text-xs text-[#e8e4dc] placeholder:text-[#556178] focus:outline-none focus:border-[#d4a853] font-mono resize-y"
                 />
               </div>

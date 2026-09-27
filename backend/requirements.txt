@@ -17,3 +17,4 @@ torch
 transformers
 huggingface_hub
 accelerate
+pypdf
