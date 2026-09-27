@@ -125,7 +125,7 @@ def extract_email_demo(subject: str, sender: str, body: str):
     return badge, details_json, meta
 
 
-def format_ats_audit_markdown(res: Dict, job_title: str = "", company: str = "") -> str:
+def format_ats_audit_markdown(res: dict, job_title: str = "", company: str = "") -> str:
     """Formats an executive ATS Audit Report in GitHub-flavored Markdown."""
     target_role = job_title or "Target Position"
     target_comp = f" at {company}" if company else ""
