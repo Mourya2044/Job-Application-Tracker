@@ -40,6 +40,8 @@ class ResumeMatchResponse(BaseModel):
     section_checks: Optional[SectionChecks] = Field(None, description="ATS parseability and formatting checklist")
     detected_years_candidate: Optional[int] = Field(None, description="Candidate years of experience detected")
     detected_years_required: Optional[int] = Field(None, description="Job required years of experience detected")
+    bullet_critiques: Optional[List[Dict[str, str]]] = Field(default_factory=list, description="AI bullet point rewrites following the Google XYZ formula")
+    strategic_interview_tips: Optional[List[str]] = Field(default_factory=list, description="Tailored interview discussion topics and strategic positioning")
 
 
 class CoverLetterRequest(BaseModel):

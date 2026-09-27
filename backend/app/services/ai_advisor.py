@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import json
 import logging
 from typing import BinaryIO, Dict, List, Optional, Tuple, Union
 
@@ -32,7 +33,7 @@ SIMILARITY_MODEL_ID = (
     or os.getenv("EMBEDDING_MODEL_ID")
     or os.getenv("SIMILARITY_MODEL")
     or os.getenv("EMBED_MODEL")
-    or "sentence-transformers/all-MiniLM-L6-v2"
+    or "BAAI/bge-small-en-v1.5"
 ).strip().strip("'\"")
 
 GEN_MODEL_ID = (
@@ -41,7 +42,7 @@ GEN_MODEL_ID = (
     or os.getenv("MODEL_ID")
     or os.getenv("LLM_MODEL")
     or os.getenv("TEXT_MODEL_ID")
-    or "HuggingFaceTB/SmolLM2-135M-Instruct"
+    or "Qwen/Qwen2.5-0.5B-Instruct"
 ).strip().strip("'\"")
 
 # Global lazy singletons
@@ -52,13 +53,47 @@ _gen_tokenizer = None
 _gen_model = None
 
 
+def _get_torch_device():
+    """Detects available accelerator device."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+    except Exception:
+        pass
+    return "cpu"
+
+
+def _ensure_model_device(model):
+    """
+    Ensures model resides on CUDA if ZeroGPU allocates a GPU slice dynamically.
+    Converts to fp16 for maximal inference throughput and low VRAM footprint.
+    """
+    if model is None or model is False:
+        return model
+    try:
+        import torch
+        if torch.cuda.is_available():
+            current_device = next(model.parameters()).device
+            if current_device.type != "cuda":
+                model.to("cuda")
+                if hasattr(model, "half"):
+                    model.half()
+    except Exception as e:
+        logger.debug("Device assignment note: %s", e)
+    return model
+
+
 def get_gliner_model():
     """Lazily load GLiNER2 zero-shot entity and skill extractor."""
     global _gliner_model
     if _gliner_model is None:
         try:
+            import contextlib
             from gliner2 import GLiNER2
-            _gliner_model = GLiNER2.from_pretrained(GLINER_MODEL_ID)
+            # Suppress terminal prints that may contain Unicode chars unhandled by standard Windows cp1252
+            with contextlib.redirect_stdout(io.StringIO()):
+                _gliner_model = GLiNER2.from_pretrained(GLINER_MODEL_ID)
             logger.info("GLiNER2 skill extractor initialized (%s)", GLINER_MODEL_ID)
         except Exception as e:
             logger.warning("Could not load GLiNER2 model: %s", e)
@@ -67,16 +102,21 @@ def get_gliner_model():
 
 
 def get_similarity_model():
-    """Lazily load MiniLM / BGE transformer model for semantic embeddings."""
+    """Lazily load MiniLM / BGE transformer model for semantic embeddings on GPU."""
     global _sim_tokenizer, _sim_model
     if _sim_model is None:
         try:
             import torch
             from transformers import AutoTokenizer, AutoModel
+            device = _get_torch_device()
             _sim_tokenizer = AutoTokenizer.from_pretrained(SIMILARITY_MODEL_ID)
-            _sim_model = AutoModel.from_pretrained(SIMILARITY_MODEL_ID)
+            _sim_model = AutoModel.from_pretrained(
+                SIMILARITY_MODEL_ID,
+                dtype=torch.float16 if str(device) == "cuda" else torch.float32,
+            )
+            _sim_model.to(device)
             _sim_model.eval()
-            logger.info("Semantic similarity model initialized (%s)", SIMILARITY_MODEL_ID)
+            logger.info("Semantic similarity model initialized on %s (%s)", device, SIMILARITY_MODEL_ID)
         except Exception as e:
             logger.warning("Could not load similarity model: %s", e)
             _sim_model = False
@@ -85,19 +125,21 @@ def get_similarity_model():
 
 
 def get_generation_model():
-    """Lazily load instruction-tuned language model for cover letters & advice."""
+    """Lazily load instruction-tuned language model for cover letters & advice on GPU."""
     global _gen_tokenizer, _gen_model
     if _gen_model is None:
         try:
             import torch
             from transformers import AutoTokenizer, AutoModelForCausalLM
+            device = _get_torch_device()
             _gen_tokenizer = AutoTokenizer.from_pretrained(GEN_MODEL_ID)
             _gen_model = AutoModelForCausalLM.from_pretrained(
                 GEN_MODEL_ID,
-                dtype=torch.float32 if not torch.cuda.is_available() else torch.float16,
+                dtype=torch.float16 if str(device) == "cuda" else torch.float32,
             )
+            _gen_model.to(device)
             _gen_model.eval()
-            logger.info("Text generation model initialized (%s)", GEN_MODEL_ID)
+            logger.info("Text generation model initialized on %s (%s)", device, GEN_MODEL_ID)
         except Exception as e:
             logger.warning("Could not load text generation model: %s", e)
             _gen_model = False
@@ -105,84 +147,31 @@ def get_generation_model():
     return (_gen_tokenizer, _gen_model) if _gen_model is not False else (None, None)
 
 
-# Canonical aliases for normalization
-SYNONYM_MAP = {
-    "golang": "Go",
-    "go": "Go",
-    "react.js": "React",
-    "reactjs": "React",
-    "react": "React",
-    "vue.js": "Vue",
-    "vuejs": "Vue",
-    "vue": "Vue",
-    "postgres": "PostgreSQL",
-    "postgresql": "PostgreSQL",
-    "aws": "AWS",
-    "amazon web services": "AWS",
-    "gcp": "GCP",
-    "google cloud": "GCP",
-    "google cloud platform": "GCP",
-    "k8s": "Kubernetes",
-    "kubernetes": "Kubernetes",
-    "rest": "REST APIs",
-    "restful": "REST APIs",
-    "fastapi": "FastAPI",
-    "docker": "Docker",
-    "python": "Python",
-    "typescript": "TypeScript",
-    "javascript": "JavaScript",
-    "redis": "Redis",
-    "graphql": "GraphQL",
-    "tailwind": "Tailwind CSS",
-    "tailwindcss": "Tailwind CSS",
-    "next.js": "Next.js",
-    "nextjs": "Next.js",
-    "linux": "Linux",
-    "terraform": "Terraform",
-    "ci/cd": "CI/CD",
-}
+# ---------------------------------------------------------------------------
+# Dynamic Neural Skill Processing (Zero Hardcoded Dictionaries)
+# ---------------------------------------------------------------------------
 
-# Seniority levels and their numeric ranks
-SENIORITY_RANKS = {
-    "intern": 1,
-    "junior": 2,
-    "associate": 2,
-    "entry": 2,
-    "mid": 3,
-    "intermediate": 3,
-    "senior": 4,
-    "sr": 4,
-    "lead": 5,
-    "staff": 6,
-    "principal": 7,
-    "architect": 6,
-    "manager": 5,
-    "director": 7,
-    "head": 7,
-    "vp": 8,
-}
-
-# Action verbs commonly expected by ATS scanners in achievement bullets
-ATS_ACTION_VERBS = [
-    "architected", "engineered", "developed", "built", "implemented", "designed",
-    "optimized", "scaled", "automated", "spearheaded", "deployed", "reduced",
-    "increased", "delivered", "led", "refactored", "orchestrated", "migrated",
-    "resolved", "integrated", "streamlined", "accelerated", "maintained"
-]
-
-
-def _normalize_skill(skill: str) -> str:
-    cleaned = skill.strip().strip(",.;:()[]{}'\"")
-    lower = cleaned.lower()
-    if lower in SYNONYM_MAP:
-        return SYNONYM_MAP[lower]
-    return cleaned.title() if not cleaned.isupper() and len(cleaned) <= 4 else cleaned
+def _clean_skill_token(skill: str) -> str:
+    """Cleans punctuation and normalizes casing without static lookup tables, preserving camelCase/PascalCase."""
+    cleaned = skill.strip().strip(",.;:()[]{}'\"`*#")
+    if not cleaned or len(cleaned) <= 1:
+        return ""
+    # Strip role fluff if extracted inside a composite phrase like "Senior Python Developer"
+    cleaned = re.sub(r"(?i)\b(senior|junior|lead|staff|principal|experienced|developer|engineer|specialist)\b", "", cleaned).strip()
+    if not cleaned or len(cleaned) <= 1:
+        return ""
+    # Preserve camelCase / PascalCase like PostgreSQL, FastAPI, JavaScript, TypeScript, MongoDB, GraphQL, DevOps
+    if any(c.isupper() for c in cleaned[1:]) or cleaned.isupper() or "/" in cleaned or "-" in cleaned or "." in cleaned:
+        return cleaned
+    if len(cleaned) <= 4 and cleaned.isalpha():
+        return cleaned.upper()
+    return cleaned.title()
 
 
 def extract_skills_from_text(text: str) -> List[str]:
     """
-    Extracts technical skills and qualifications using GLiNER2 zero-shot information extraction.
-    Falls back gracefully to token regex heuristics if the neural model is offline.
+    Extracts technical skills, engineering proficiencies, frameworks, and tools
+    using GLiNER2 zero-shot information extraction on GPU without hardcoded keyword lists.
     """
     if not text or not text.strip():
         return []
@@ -195,27 +184,46 @@ def extract_skills_from_text(text: str) -> List[str]:
             schema = (
                 gliner.create_schema()
                 .entities({
-                    "skill": "Technical skill, programming language, library, framework, or database",
-                    "competency": "Engineering domain proficiency, cloud platform, or core qualification",
+                    "skill": "Programming languages, frameworks, developer tools, libraries, APIs, databases, cloud platforms",
+                    "competency": "Engineering domain proficiency, DevOps, system architecture, data engineering, protocols",
+                    "qualification": "Certifications, technical credentials, or specialized proficiencies",
                 })
             )
-            extraction = gliner.extract(text[:2500], schema)
+            # Process up to 4000 characters for comprehensive extraction
+            extraction = gliner.extract(text[:4000], schema)
             entities = extraction.get("entities", {})
-            for item in entities.get("skill", []) + entities.get("competency", []):
-                norm = _normalize_skill(item)
-                if norm and len(norm) > 1:
-                    found_skills.append(norm)
+            for cat in ["skill", "competency", "qualification"]:
+                for item in entities.get(cat, []):
+                    cleaned = _clean_skill_token(item)
+                    if (
+                        cleaned
+                        and len(cleaned) > 1
+                        and cleaned.lower() not in {
+                            "and", "with", "the", "for", "or", "in", "to", "of",
+                            "experience", "years", "knowledge", "proficient", "strong"
+                        }
+                    ):
+                        found_skills.append(cleaned)
         except Exception as e:
             logger.debug("GLiNER2 extraction failed: %s", e)
 
-    # Secondary pattern heuristic to ensure comprehensive coverage
-    token_pattern = r"(?i)\b(python|javascript|typescript|golang|go|rust|java|c\+\+|c\#|ruby|sql|react|vue|angular|fastapi|django|flask|node\.js|express|docker|kubernetes|k8s|aws|gcp|azure|postgresql|postgres|mysql|redis|mongodb|graphql|tailwind|next\.js|linux|ci/cd|terraform|git)\b"
-    for match in re.finditer(token_pattern, text):
-        norm = _normalize_skill(match.group(1))
-        if norm not in found_skills:
-            found_skills.append(norm)
+    # Dynamic fallback: if neural model is offline or during cold-start, extract capitalized tech symbols
+    if not found_skills:
+        dynamic_matches = re.findall(r"\b[A-Za-z0-9#\+\.\/\-]{2,20}\b", text)
+        for token in dynamic_matches:
+            if any(c.isupper() for c in token) or any(c in "#+./" for c in token):
+                cleaned = _clean_skill_token(token)
+                if (
+                    cleaned
+                    and len(cleaned) > 1
+                    and cleaned.lower() not in {
+                        "senior", "junior", "lead", "engineer", "developer", "experience",
+                        "looking", "candidate", "resume", "with", "and", "team"
+                    }
+                ):
+                    found_skills.append(cleaned)
 
-    # Deduplicate while preserving order
+    # Deduplicate while preserving order (case-insensitive)
     deduped = []
     seen = set()
     for s in found_skills:
@@ -226,6 +234,121 @@ def extract_skills_from_text(text: str) -> List[str]:
 
     return deduped
 
+
+# ---------------------------------------------------------------------------
+# GPU Vectorized Dense Embeddings & Neural Skill Matcher
+# ---------------------------------------------------------------------------
+
+def compute_batch_embeddings(texts: List[str]):
+    """
+    Computes normalized dense contextual embeddings for a batch of strings on GPU.
+    Returns torch.Tensor of shape [batch_size, hidden_dim] normalized to unit length.
+    """
+    if not texts:
+        return None
+    tok, model = get_similarity_model()
+    if not tok or not model:
+        return None
+
+    try:
+        import torch
+        _ensure_model_device(model)
+        device = next(model.parameters()).device
+        inp = tok(texts, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        inp = {k: v.to(device) for k, v in inp.items()}
+        with torch.no_grad():
+            out = model(**inp)
+            mask = inp["attention_mask"].unsqueeze(-1).expand(out.last_hidden_state.size()).float()
+            sum_embeddings = torch.sum(out.last_hidden_state * mask, 1)
+            sum_mask = torch.clamp(mask.sum(1), min=1e-9)
+            emb = sum_embeddings / sum_mask
+            norm_emb = torch.nn.functional.normalize(emb, p=2, dim=1)
+            return norm_emb
+    except Exception as e:
+        logger.debug("Error computing batch embeddings: %s", e)
+        return None
+
+
+def compute_semantic_embedding(text: str):
+    """Computes normalized dense contextual embedding for a single text."""
+    if not text or not text.strip():
+        return None
+    embs = compute_batch_embeddings([text])
+    return embs[0:1] if embs is not None else None
+
+
+def calculate_semantic_similarity(emb1, emb2) -> float:
+    """Calculates cosine similarity between two normalized embeddings."""
+    if emb1 is None or emb2 is None:
+        return 0.0
+    try:
+        import torch
+        sim = float(torch.mm(emb1, emb2.T)[0][0].item())
+        return max(-1.0, min(1.0, sim))
+    except Exception:
+        return 0.0
+
+
+def match_skills_neural(
+    resume_skills: List[str],
+    job_skills: List[str],
+    synonym_threshold: float = 0.85
+) -> Tuple[List[str], List[str], List[str]]:
+    """
+    Evaluates candidate skills against job requirements using GPU tensor operations.
+    Matches direct lexical terms as well as semantic synonyms (e.g. k8s <-> Kubernetes,
+    golang <-> Go, postgres <-> PostgreSQL) via dense vector cosine similarity without
+    any static synonym dictionary.
+    """
+    if not job_skills:
+        return [], [], resume_skills[:6]
+
+    if not resume_skills:
+        return [], job_skills, []
+
+    matching = []
+    unmatched_reqs = []
+    cand_lower_map = {s.lower(): s for s in resume_skills}
+
+    # 1. Direct lexical match
+    for req in job_skills:
+        if req.lower() in cand_lower_map:
+            matching.append(req)
+        else:
+            unmatched_reqs.append(req)
+
+    # 2. Batched semantic cross-comparison on GPU for remaining requirements
+    if unmatched_reqs:
+        cand_embs = compute_batch_embeddings(resume_skills)
+        req_embs = compute_batch_embeddings(unmatched_reqs)
+
+        if cand_embs is not None and req_embs is not None:
+            import torch
+            # sim_matrix shape: [len(resume_skills), len(unmatched_reqs)]
+            sim_matrix = torch.mm(cand_embs, req_embs.T)
+            for j, req in enumerate(unmatched_reqs):
+                max_sim = float(torch.max(sim_matrix[:, j]).item())
+                if max_sim >= synonym_threshold:
+                    matching.append(req)
+        else:
+            # Fallback if embeddings fail
+            for req in unmatched_reqs:
+                if any(req.lower() in cs.lower() or cs.lower() in req.lower() for cs in resume_skills):
+                    matching.append(req)
+
+    # Missing skills are all job_skills not in matching
+    matching_lower = {m.lower() for m in matching}
+    missing = [req for req in job_skills if req.lower() not in matching_lower]
+
+    # Candidate extra strengths
+    candidate_strengths = [s for s in resume_skills if s.lower() not in matching_lower][:6]
+
+    return matching, missing, candidate_strengths
+
+
+# ---------------------------------------------------------------------------
+# PDF Document Parser & Structured Profile Extractor
+# ---------------------------------------------------------------------------
 
 def extract_text_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> str:
     """
@@ -260,9 +383,7 @@ def extract_text_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> str:
                 logger.warning("Error reading PDF page %d: %s", i + 1, e)
 
         full_text = "\n\n".join(pages_text)
-        # Clean up hyphenated line wraps (e.g. "distrib-\nuted" -> "distributed")
         cleaned = re.sub(r"(\w+)-\n(\w+)", r"\1\2", full_text)
-        # Normalize excessive whitespace and linebreaks
         cleaned = re.sub(r"[ \t]+", " ", cleaned)
         cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
         return cleaned.strip()
@@ -290,7 +411,7 @@ def extract_resume_profile_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> 
             "summary": "No readable text found in PDF.",
         }
 
-    # 1. Contact & Link Extraction (Regex)
+    # 1. Contact & Link Extraction
     email_match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", raw_text)
     email = email_match.group(0) if email_match else ""
 
@@ -335,7 +456,7 @@ def extract_resume_profile_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> 
         except Exception as e:
             logger.debug("GLiNER2 resume profile extraction error: %s", e)
 
-    # Fallback for candidate name from first line if not detected
+    # Fallback for candidate name from first lines
     if not candidate_name:
         for line in raw_text.split("\n")[:3]:
             candidate_line = line.strip()
@@ -344,10 +465,10 @@ def extract_resume_profile_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> 
                 candidate_name = candidate_line.title()
                 break
 
-    # 3. Extract all skills and qualifications using GLiNER2 AI
+    # 3. Extract skills using GPU neural extractor
     skills = extract_skills_from_text(raw_text)
 
-    # 4. Generate candidate summary preview
+    # 4. Summary preview
     name_str = candidate_name or "Candidate"
     skills_preview = ", ".join(skills[:6]) if skills else "general software engineering"
     summary = f"{name_str} with expertise in {skills_preview}. Extracted {len(skills)} technical skills from resume."
@@ -365,77 +486,14 @@ def extract_resume_profile_from_pdf(pdf_source: Union[bytes, BinaryIO, str]) -> 
     }
 
 
-def compute_semantic_embedding(text: str):
-    """Computes normalized dense contextual embedding using all-MiniLM-L6-v2."""
-    tok, model = get_similarity_model()
-    if not tok or not model:
-        return None
-
-    try:
-        import torch
-        inp = tok(text, padding=True, truncation=True, max_length=512, return_tensors="pt")
-        device = next(model.parameters()).device
-        inp = {k: v.to(device) for k, v in inp.items()}
-        with torch.no_grad():
-            out = model(**inp)
-            emb = out.last_hidden_state.mean(dim=1)
-            norm_emb = torch.nn.functional.normalize(emb, p=2, dim=1)
-            return norm_emb
-    except Exception as e:
-        logger.debug("Error computing semantic embedding: %s", e)
-        return None
-
-
-def calculate_semantic_similarity(emb1, emb2) -> float:
-    """Calculates cosine similarity between two normalized embeddings."""
-    if emb1 is None or emb2 is None:
-        return 0.0
-    try:
-        import torch
-        sim = float(torch.mm(emb1, emb2.T)[0][0].item())
-        return max(-1.0, min(1.0, sim))
-    except Exception:
-        return 0.0
-
-
 # ---------------------------------------------------------------------------
-# ATS (Applicant Tracking System) Specialized Evaluators
+# ATS Parseability & Section Checklist Evaluator
 # ---------------------------------------------------------------------------
-
-def extract_years_of_experience(text: str) -> Optional[int]:
-    """Extracts explicit years of experience mentioned in text (e.g. '5+ years', '3-5 years')."""
-    pat = r"(\d+)\+?\s*(?:-\s*(\d+)\s*)?(?:years?|yrs?)(?:\s+of)?(?:\s+experience)?"
-    matches = re.findall(pat, text, flags=re.IGNORECASE)
-    if not matches:
-        return None
-    years = []
-    for a, b in matches:
-        try:
-            val = int(b) if b else int(a)
-            if 0 < val <= 40:
-                years.append(val)
-        except Exception:
-            continue
-    return max(years) if years else None
-
-
-def detect_seniority_level(text: str) -> Tuple[str, int]:
-    """Detects highest seniority level present in role or resume."""
-    text_lower = text.lower()
-    highest_title = "mid"
-    highest_rank = 3
-    for title, rank in SENIORITY_RANKS.items():
-        if re.search(rf"\b{title}\b", text_lower):
-            if rank > highest_rank:
-                highest_rank = rank
-                highest_title = title.title()
-    return highest_title, highest_rank
-
 
 def check_ats_formatting_and_sections(text: str) -> Tuple[int, Dict[str, bool]]:
     """
-    Evaluates ATS parseability: checks for essential contact fields,
-    standard section headers, action verbs, and quantified metrics.
+    Evaluates ATS parseability: verifies essential contact fields,
+    standard structural sections, and presence of quantified metrics.
     """
     has_email = bool(re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text))
     has_phone = bool(re.search(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text))
@@ -446,7 +504,6 @@ def check_ats_formatting_and_sections(text: str) -> Tuple[int, Dict[str, bool]]:
     # Check for quantified metrics (e.g., 40%, $2M, 50ms latency, 100k users)
     has_metrics = bool(re.search(r"\d+%\b|\$\d+|\b\d+\s*(?:ms|seconds|minutes|hours|users|clients|queries|requests|x|fold|tb|gb)\b", text, flags=re.IGNORECASE))
 
-    # Base ATS formatting health score
     score = 100
     if not has_email:
         score -= 15
@@ -474,40 +531,152 @@ def check_ats_formatting_and_sections(text: str) -> Tuple[int, Dict[str, bool]]:
     return score, checks
 
 
-def check_education_alignment(resume_text: str, job_description: str) -> int:
-    """Evaluates degree level and certification match between job and resume."""
-    degree_levels = {
-        "phd": 4, "doctorate": 4,
-        "master": 3, "ms": 3, "m.tech": 3, "mba": 3,
-        "bachelor": 2, "bs": 2, "b.tech": 2, "b.e": 2, "undergraduate": 2
-    }
+# ---------------------------------------------------------------------------
+# Causal LM Generation & Structured JSON Extraction
+# ---------------------------------------------------------------------------
 
-    job_lower = job_description.lower()
-    res_lower = resume_text.lower()
+def _generate_with_causal_lm(
+    prompt_messages: List[Dict[str, str]],
+    max_new_tokens: int = 400
+) -> Optional[str]:
+    """Generates text from instruction model on GPU using chat template."""
+    tok, model = get_generation_model()
+    if not tok or not model:
+        return None
 
-    req_degree_rank = 1
-    for deg, rank in degree_levels.items():
-        if re.search(rf"\b{deg}\b", job_lower):
-            if rank > req_degree_rank:
-                req_degree_rank = rank
+    try:
+        import torch
+        _ensure_model_device(model)
+        device = next(model.parameters()).device
+        prompt = tok.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+        inp = tok(prompt, return_tensors="pt").to(device)
 
-    cand_degree_rank = 1
-    for deg, rank in degree_levels.items():
-        if re.search(rf"\b{deg}\b", res_lower):
-            if rank > cand_degree_rank:
-                cand_degree_rank = rank
+        with torch.no_grad():
+            out = model.generate(
+                **inp,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9,
+                repetition_penalty=1.1,
+            )
+            gen_text = tok.decode(out[0][inp.input_ids.shape[1]:], skip_special_tokens=True)
+            return gen_text.strip()
+    except Exception as e:
+        logger.warning("Causal LM generation encountered an error: %s", e)
+        return None
 
-    if req_degree_rank <= 1:
-        # Job description does not strictly mandate a specific degree
-        return 90 if cand_degree_rank >= 2 else 75
-    elif cand_degree_rank >= req_degree_rank:
-        return 95
-    else:
-        # Candidate has lower degree tier than explicitly requested
-        return 65
+
+def _extract_json_from_llm_response(text: str) -> Optional[Dict]:
+    """Extracts valid JSON dictionary from LLM generation text."""
+    if not text:
+        return None
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # Extract ```json ... ``` codeblock
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+
+    # Extract outermost { and }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except Exception:
+            pass
+
+    return None
 
 
-@spaces.GPU(duration=60)
+def _evaluate_career_and_ats_with_llm(
+    resume_text: str,
+    job_description: str,
+    job_title: str,
+    company: str,
+    matching_skills: List[str],
+    missing_skills: List[str],
+) -> Optional[Dict]:
+    """
+    Evaluates candidate seniority, career trajectory, education equivalency,
+    and generates bullet point rewrites following the Google XYZ formula using
+    the instruction LLM on GPU.
+    """
+    tok, model = get_generation_model()
+    if not tok or not model:
+        return None
+
+    role_label = job_title or "Software Engineer"
+    company_label = company or "Target Company"
+    resume_sample = resume_text[:1200]
+    job_sample = job_description[:1000]
+
+    system_prompt = (
+        "You are an expert ATS (Applicant Tracking System) Analyst and Technical Recruiter. "
+        "Assess candidate fit, seniority, education equivalency, and bullet impact. "
+        "Respond ONLY with a valid JSON object matching the requested schema."
+    )
+    user_prompt = (
+        f"Job Title: {role_label} at {company_label}\n"
+        f"Job Requirements Context:\n{job_sample}\n\n"
+        f"Candidate Resume Context:\n{resume_sample}\n\n"
+        f"Verified Matching Skills: {', '.join(matching_skills[:6]) if matching_skills else 'None'}\n"
+        f"Missing Skills: {', '.join(missing_skills[:6]) if missing_skills else 'None'}\n\n"
+        f"Evaluate the candidate and return valid JSON with these EXACT keys:\n"
+        f"{{\n"
+        f'  "seniority_alignment_score": <int 30-100>,\n'
+        f'  "candidate_seniority": "<Junior | Mid | Senior | Staff | Lead>",\n'
+        f'  "required_seniority": "<Junior | Mid | Senior | Staff | Lead>",\n'
+        f'  "detected_years_candidate": <int or null>,\n'
+        f'  "detected_years_required": <int or null>,\n'
+        f'  "education_alignment_score": <int 40-100>,\n'
+        f'  "education_assessment": "<1-2 sentences on degree/certification fit>",\n'
+        f'  "bullet_critiques": [\n'
+        f'    {{\n'
+        f'      "original_weakness": "<short weak bullet or phrase from resume>",\n'
+        f'      "improved_xyz_bullet": "<rewritten bullet with active verb and quantified impact metrics>"\n'
+        f'    }}\n'
+        f'  ],\n'
+        f'  "strategic_advice": [\n'
+        f'    "<strategic advice 1>",\n'
+        f'    "<strategic advice 2>"\n'
+        f'  ],\n'
+        f'  "strategic_interview_tips": [\n'
+        f'    "<interview talking point 1>"\n'
+        f'  ]\n'
+        f"}}"
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    try:
+        raw_output = _generate_with_causal_lm(messages, max_new_tokens=450)
+        if raw_output:
+            parsed = _extract_json_from_llm_response(raw_output)
+            if parsed and isinstance(parsed, dict) and "seniority_alignment_score" in parsed:
+                return parsed
+    except Exception as e:
+        logger.debug("LLM ATS career evaluation note: %s", e)
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 5-Pillar ATS (Applicant Tracking System) Evaluation Engine
+# ---------------------------------------------------------------------------
+
+@spaces.GPU(duration=120)
 def analyze_resume_fit(
     resume_text: str = "",
     job_description: str = "",
@@ -516,13 +685,13 @@ def analyze_resume_fit(
     resume_pdf: Optional[Union[bytes, str]] = None,
 ) -> Dict:
     """
-    ATS (Applicant Tracking System) Scorer and Resume Fit Engine.
-    Evaluates resumes across 5 core ATS pillars:
-      1. Technical Skills & Keywords (35%)
-      2. Experience & Seniority Alignment (20%)
-      3. Education & Credentials (15%)
-      4. ATS Parseability & Formatting Health (15%)
-      5. Semantic Relevance & Impact (15%)
+    ATS (Applicant Tracking System) Scorer and Resume Fit Engine powered by GPU AI.
+    Evaluates resumes across 5 core ATS pillars without hardcoded lookup tables:
+      1. Technical Skills & Keywords (35%) -> Vectorized GPU Cosine Matching
+      2. Experience & Seniority Alignment (20%) -> Neural LLM Career Reasoning
+      3. Education & Credentials (15%) -> Neural Credential Equivalency Analysis
+      4. ATS Parseability & Formatting Health (15%) -> Structural Verification
+      5. Semantic Relevance & Impact (15%) -> Dense Contextual Document Embeddings
     """
     if resume_pdf is not None and not resume_text:
         resume_text = extract_text_from_pdf(resume_pdf)
@@ -536,38 +705,11 @@ def analyze_resume_fit(
         if title_skills:
             job_skills.extend(title_skills)
 
-    candidate_skill_embs = {}
-    for cs in resume_skills:
-        c_emb = compute_semantic_embedding(cs)
-        if c_emb is not None:
-            candidate_skill_embs[cs] = c_emb
-
-    matching = []
-    missing = []
-
-    for req in job_skills:
-        # Check direct lexical match
-        if any(req.lower() == cs.lower() for cs in resume_skills):
-            matching.append(req)
-            continue
-
-        # Check semantic embedding match for direct synonyms/equivalents (threshold 0.85)
-        req_emb = compute_semantic_embedding(req)
-        matched = False
-        if req_emb is not None and candidate_skill_embs:
-            for cs, c_emb in candidate_skill_embs.items():
-                sim = calculate_semantic_similarity(req_emb, c_emb)
-                if sim >= 0.85:
-                    matched = True
-                    break
-
-        if matched:
-            matching.append(req)
-        else:
-            missing.append(req)
-
-    job_skill_lower = {s.lower() for s in job_skills}
-    extra_strengths = [s for s in resume_skills if s.lower() not in job_skill_lower][:6]
+    matching, missing, extra_strengths = match_skills_neural(
+        resume_skills=resume_skills,
+        job_skills=job_skills,
+        synonym_threshold=0.85
+    )
 
     if job_skills:
         skill_coverage = len(matching) / len(job_skills)
@@ -575,38 +717,48 @@ def analyze_resume_fit(
     else:
         skills_score = 75
 
-    # 2. Pillar 2: Experience & Seniority Alignment (Weight: 20%)
-    cand_years = extract_years_of_experience(resume_text)
-    req_years = extract_years_of_experience(job_description)
-
-    _, req_rank = detect_seniority_level(f"{job_title} {job_description}")
-    _, cand_rank = detect_seniority_level(resume_text)
-
-    if req_years is not None and cand_years is not None:
-        if cand_years >= req_years:
-            exp_ratio = 1.0
-        else:
-            exp_ratio = max(0.4, cand_years / req_years)
-        experience_score = int(round(exp_ratio * 100))
-    elif req_rank and cand_rank:
-        if cand_rank >= req_rank:
-            experience_score = 95
-        else:
-            experience_score = 70
-    else:
-        experience_score = 80
-
-    # 3. Pillar 3: Education & Credentials Alignment (Weight: 15%)
-    education_score = check_education_alignment(resume_text, job_description)
-
-    # 4. Pillar 4: ATS Parseability & Formatting Health (Weight: 15%)
+    # 2. Pillar 4: ATS Parseability & Formatting Health (Weight: 15%)
     formatting_score, section_checks = check_ats_formatting_and_sections(resume_text)
 
-    # 5. Pillar 5: Semantic Relevance & Responsibility Coverage (Weight: 15%)
+    # 3. Pillar 5: Semantic Document Relevance & Impact (Weight: 15%)
     emb_resume = compute_semantic_embedding(resume_text)
     emb_job = compute_semantic_embedding(job_description)
     doc_similarity = calculate_semantic_similarity(emb_resume, emb_job)
     semantic_score = int(min(100, max(35, round(max(0.0, doc_similarity) * 100))))
+
+    # 4. Pillar 2 & Pillar 3: AI-Driven Career, Seniority, and Education Assessment
+    llm_eval = _evaluate_career_and_ats_with_llm(
+        resume_text=resume_text,
+        job_description=job_description,
+        job_title=job_title,
+        company=company,
+        matching_skills=matching,
+        missing_skills=missing,
+    )
+
+    bullet_critiques = []
+    strategic_tips = []
+    llm_advice = []
+
+    if llm_eval:
+        experience_score = int(llm_eval.get("seniority_alignment_score", 80))
+        education_score = int(llm_eval.get("education_alignment_score", 85))
+        cand_years = llm_eval.get("detected_years_candidate")
+        req_years = llm_eval.get("detected_years_required")
+        bullet_critiques = llm_eval.get("bullet_critiques", [])
+        strategic_tips = llm_eval.get("strategic_interview_tips", [])
+        llm_advice = llm_eval.get("strategic_advice", [])
+    else:
+        # Neural fallback using dense semantic similarity
+        experience_score = int(min(95, max(60, round(semantic_score * 0.9 + skills_score * 0.1))))
+        education_score = 85
+
+        # Basic numeric year regex fallback
+        pat = r"(\d+)\+?\s*(?:-\s*(\d+)\s*)?(?:years?|yrs?)(?:\s+of)?(?:\s+experience)?"
+        m_cand = re.findall(pat, resume_text, flags=re.IGNORECASE)
+        cand_years = max([int(b or a) for a, b in m_cand if int(b or a) <= 40]) if m_cand else None
+        m_req = re.findall(pat, job_description, flags=re.IGNORECASE)
+        req_years = max([int(b or a) for a, b in m_req if int(b or a) <= 40]) if m_req else None
 
     # Composite ATS Score (Weighted Multi-Pillar Engine)
     raw_ats_score = (
@@ -653,11 +805,10 @@ def analyze_resume_fit(
             f"Core ATS Strengths: Your verified proficiency in {top_matching} provides a solid qualification match for {role_label}."
         )
 
-    if extra_strengths:
-        top_extra = ", ".join(extra_strengths[:3])
-        recommendations.append(
-            f"Value-Add Differentiators: Emphasize your background in {top_extra} as versatile strengths that distinguish you from other candidates."
-        )
+    # Incorporate LLM generated strategic recommendations
+    for adv in llm_advice:
+        if adv and adv not in recommendations:
+            recommendations.append(adv)
 
     if not recommendations:
         recommendations.append(
@@ -691,39 +842,14 @@ def analyze_resume_fit(
         "section_checks": section_checks,
         "detected_years_candidate": cand_years,
         "detected_years_required": req_years,
+        "bullet_critiques": bullet_critiques,
+        "strategic_interview_tips": strategic_tips,
     }
 
 
-def _generate_with_causal_lm(
-    prompt_messages: List[Dict[str, str]],
-    max_new_tokens: int = 220
-) -> Optional[str]:
-    """Generates text from instruction model using chat template."""
-    tok, model = get_generation_model()
-    if not tok or not model:
-        return None
-
-    try:
-        import torch
-        device = next(model.parameters()).device
-        prompt = tok.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
-        inp = tok(prompt, return_tensors="pt").to(device)
-
-        with torch.no_grad():
-            out = model.generate(
-                **inp,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                repetition_penalty=1.1,
-            )
-            gen_text = tok.decode(out[0][inp.input_ids.shape[1]:], skip_special_tokens=True)
-            return gen_text.strip()
-    except Exception as e:
-        logger.warning("Causal LM generation encountered an error: %s", e)
-        return None
-
+# ---------------------------------------------------------------------------
+# Cover Letter Generator with ZeroGPU Causal LM
+# ---------------------------------------------------------------------------
 
 def _clean_and_personalize_cover_letter(
     raw_text: str,
@@ -737,7 +863,6 @@ def _clean_and_personalize_cover_letter(
     text = re.sub(r"^```(?:markdown)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
 
-    # 1. Replace placeholder tokens commonly produced by LLMs
     placeholders = [
         (r"\[(?:Company\s*Name|Company|Target\s*Company|Client\s*Name|Organization)\]", company_name),
         (r"\[(?:Job\s*Title|Position\s*Title|Position|Role\s*Name|Role)\]", role_name),
@@ -747,7 +872,6 @@ def _clean_and_personalize_cover_letter(
     for pat, rep in placeholders:
         text = re.sub(pat, rep, text, flags=re.IGNORECASE)
 
-    # 2. Ensure company_name appears in the greeting or text
     if company_name not in text:
         if text.lower().startswith("dear"):
             lines = text.split("\n", 1)
@@ -755,7 +879,6 @@ def _clean_and_personalize_cover_letter(
         else:
             text = f"Dear Hiring Team at {company_name},\n\n" + text
 
-    # 3. Ensure role_name appears in the text
     if role_name not in text:
         match = re.search(rf"\b{re.escape(role_name)}\b", text, flags=re.IGNORECASE)
         if match:
@@ -766,14 +889,13 @@ def _clean_and_personalize_cover_letter(
                 paragraphs[1] = f"I am writing to express my strong interest in the {role_name} position at {company_name}. " + paragraphs[1]
                 text = "\n\n".join(paragraphs)
 
-    # 4. Ensure professional signoff
     if "[Your Name]" not in text and not text.lower().endswith("sincerely,"):
         text = text.rstrip() + "\n\nSincerely,\n[Your Name]"
 
     return text
 
 
-@spaces.GPU(duration=60)
+@spaces.GPU(duration=120)
 def generate_tailored_cover_letter(
     resume_text: str = "",
     job_title: str = "",
@@ -792,17 +914,17 @@ def generate_tailored_cover_letter(
 
     resume_skills = extract_skills_from_text(resume_text)
     job_skills = extract_skills_from_text(job_description)
-    matching_skills = [s for s in job_skills if s.lower() in {r.lower() for r in resume_skills}]
+    matching, _, _ = match_skills_neural(resume_skills, job_skills)
 
-    target_skills = matching_skills if matching_skills else (resume_skills[:4] if resume_skills else ["software engineering", "scalable architectures"])
+    target_skills = matching if matching else (resume_skills[:4] if resume_skills else ["software engineering", "scalable architectures"])
     skills_phrase = ", ".join(target_skills[:3]) if len(target_skills) >= 2 else (target_skills[0] if target_skills else "software engineering")
 
     company_name = company.strip() if company else "your team"
     role_name = job_title.strip() if job_title else "Software Engineer"
     active_tone = tone.lower() if tone else "professional"
 
-    resume_snippet = resume_text.strip()[:500]
-    job_snippet = job_description.strip()[:350]
+    resume_snippet = resume_text.strip()[:600]
+    job_snippet = job_description.strip()[:400]
 
     system_prompt = (
         "You are an expert career consultant and professional resume advisor. "
@@ -829,7 +951,7 @@ def generate_tailored_cover_letter(
     ]
 
     try:
-        raw_output = _generate_with_causal_lm(messages, max_new_tokens=220)
+        raw_output = _generate_with_causal_lm(messages, max_new_tokens=300)
         if raw_output and len(raw_output) > 100:
             generated_cover_letter = _clean_and_personalize_cover_letter(
                 raw_text=raw_output,
