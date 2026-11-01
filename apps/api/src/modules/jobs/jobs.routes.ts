@@ -26,6 +26,17 @@ const SaveJobBodySchema = z.object({
 
 export const jobRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // 1. Search Discovered Jobs in Market Database
+  const handleJobSearch = async (request: any, reply: any) => {
+    const rawQuery = request.query as any;
+    const searchTerm = rawQuery?.query || rawQuery?.q || "software";
+    const query = JobSearchQuerySchema.parse({
+      ...rawQuery,
+      query: searchTerm,
+    });
+    const results = await JobsService.searchJobs(query);
+    return reply.send(results);
+  };
+
   fastify.get(
     "",
     {
@@ -35,11 +46,19 @@ export const jobRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
         summary: "Search market job postings",
       },
     },
-    async (request, reply) => {
-      const query = JobSearchQuerySchema.parse(request.query);
-      const results = await JobsService.searchJobs(query);
-      return reply.send(results);
-    }
+    handleJobSearch
+  );
+
+  fastify.get(
+    "/search",
+    {
+      schema: {
+        description: "Search and filter market jobs discovered via continuous crawling (alias)",
+        tags: ["jobs"],
+        summary: "Search market job postings alias",
+      },
+    },
+    handleJobSearch
   );
 
   // 2. Curated Preset Companies

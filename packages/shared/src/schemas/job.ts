@@ -19,9 +19,10 @@ export const ScrapedJobSchema = z.object({
 export type ScrapedJobDto = z.infer<typeof ScrapedJobSchema>;
 
 export const JobSearchQuerySchema = z.object({
-  query: z.string().min(1).default("software"),
+  query: z.string().optional().default("software"),
+  q: z.string().optional(),
   location: z.string().optional().nullable(),
-  limit: z.number().int().min(1).max(200).default(50),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
 export type JobSearchQueryInput = z.infer<typeof JobSearchQuerySchema>;

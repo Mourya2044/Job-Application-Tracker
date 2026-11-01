@@ -89,10 +89,32 @@ export const JobDiscoveryView: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const q = searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : "";
+      const q = searchQuery ? `&query=${encodeURIComponent(searchQuery)}` : "";
       const s = selectedSource !== "all" ? `&source=${selectedSource}` : "";
-      const data = await apiFetch<DiscoveredJob[]>(`/api/jobs/search?limit=24${q}${s}`);
-      setJobs(data || []);
+      const data = await apiFetch<any>(`/api/jobs/search?limit=24${q}${s}`);
+      const list = Array.isArray(data)
+        ? data
+        : data && Array.isArray(data.items)
+        ? data.items
+        : [];
+
+      const parsed: DiscoveredJob[] = list.map((j: any) => ({
+        externalId: j.external_job_id || j.id || j.externalId,
+        source: j.source_type || j.source || "aggregator",
+        companyName: j.company_name || j.companyName || "Unknown",
+        title: j.role_title || j.title || "Job Opportunity",
+        url: j.job_url || j.url || "#",
+        location: j.location || "Remote",
+        remoteClassification: j.remote_type || j.remoteClassification || "Remote",
+        salaryMin: j.salary_min ?? j.salaryMin ?? null,
+        salaryMax: j.salary_max ?? j.salaryMax ?? null,
+        currency: j.currency || "USD",
+        skills: j.skills || [],
+        publishedAt: j.first_seen_at || j.publishedAt || j.posted_at || null,
+        saved: j.saved || false,
+      }));
+
+      setJobs(parsed);
     } catch (err: any) {
       setError(err?.message || "Failed to search jobs");
     } finally {
@@ -114,19 +136,22 @@ export const JobDiscoveryView: React.FC = () => {
 
   const handleSaveJob = async (job: DiscoveredJob) => {
     try {
-      await apiFetch("/api/jobs/save", {
+      const salaryRange =
+        job.salaryMin && job.salaryMax
+          ? `$${job.salaryMin} - $${job.salaryMax}`
+          : job.salaryMin
+          ? `$${job.salaryMin}+`
+          : null;
+
+      await apiFetch("/api/jobs/saved", {
         method: "POST",
         body: JSON.stringify({
-          source: job.source,
-          externalId: job.externalId,
-          companyName: job.companyName,
           title: job.title,
-          url: job.url,
-          location: job.location,
-          salaryMin: job.salaryMin,
-          salaryMax: job.salaryMax,
-          currency: job.currency,
-          skills: job.skills,
+          company_name: job.companyName,
+          location: job.location || null,
+          salary_range: salaryRange,
+          job_url: job.url || null,
+          tags: job.skills || [],
         }),
       });
       setSuccessMsg(`Saved "${job.title}" at ${job.companyName}`);
@@ -147,17 +172,23 @@ export const JobDiscoveryView: React.FC = () => {
     currency?: string | null;
   }) => {
     try {
-      await apiFetch("/api/jobs/import-to-application", {
+      const salaryRange =
+        job.salaryMin && job.salaryMax
+          ? `$${job.salaryMin} - $${job.salaryMax}`
+          : job.salaryMin
+          ? `$${job.salaryMin}+`
+          : null;
+
+      await apiFetch("/api/applications", {
         method: "POST",
         body: JSON.stringify({
-          companyName: job.companyName,
-          roleTitle: job.title,
-          jobUrl: job.url,
-          location: job.location,
-          salaryMin: job.salaryMin,
-          salaryMax: job.salaryMax,
-          currency: job.currency,
-          initialStage: "applied",
+          company_name: job.companyName,
+          role_title: job.title,
+          job_url: job.url || null,
+          location: job.location || null,
+          salary_range: salaryRange,
+          current_stage: "applied",
+          tags: [],
         }),
       });
       setSuccessMsg(`Added "${job.title}" to your Tracked Applications!`);
@@ -184,11 +215,27 @@ export const JobDiscoveryView: React.FC = () => {
     setExtractedJob(null);
 
     try {
-      const data = await apiFetch<DiscoveredJob>("/api/jobs/extract-url", {
+      const data = await apiFetch<any>("/api/jobs/extract", {
         method: "POST",
         body: JSON.stringify({ url: extractUrl }),
       });
-      setExtractedJob(data);
+      if (data) {
+        setExtractedJob({
+          externalId: data.externalId || data.id || "extracted-1",
+          source: data.source_type || data.source || "web_extract",
+          companyName: data.company_name || data.companyName || "Unknown",
+          title: data.role_title || data.title || "Job Opportunity",
+          url: data.job_url || data.url || extractUrl,
+          location: data.location || "Remote",
+          remoteClassification: data.remote_type || "Remote",
+          salaryMin: data.salary_min ?? data.salaryMin ?? null,
+          salaryMax: data.salary_max ?? data.salaryMax ?? null,
+          currency: data.currency || "USD",
+          skills: data.skills || [],
+          publishedAt: data.first_seen_at || new Date().toISOString(),
+          saved: false,
+        });
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to extract job from URL. Ensure the link is accessible.");
     } finally {
