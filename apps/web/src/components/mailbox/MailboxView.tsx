@@ -24,7 +24,7 @@ interface MailboxStatus {
 
 interface PendingSuggestion {
   id: string;
-  applicationId: string;
+  applicationId?: string;
   suggestedStage: string;
   confidenceScore: number;
   reasonSnippet?: string | null;
@@ -54,13 +54,52 @@ export const MailboxView: React.FC = () => {
     setError(null);
     try {
       const [statusRes, suggRes] = await Promise.all([
-        apiFetch<MailboxStatus>("/api/mailbox/status"),
-        apiFetch<PendingSuggestion[]>("/api/mailbox/suggestions").catch(() => []),
+        apiFetch<any>("/api/mailbox/status").catch(() => null),
+        apiFetch<any>("/api/mailbox/suggestions").catch(() => null),
       ]);
-      setStatus(statusRes);
-      setSuggestions(suggRes || []);
+
+      if (statusRes) {
+        if (Array.isArray(statusRes.connectedAccounts)) {
+          const first = statusRes.connectedAccounts[0];
+          setStatus({
+            connected: !!first,
+            email: first?.email_address,
+            historyId: first?.last_history_id,
+            lastSyncedAt: first?.updated_at,
+          });
+        } else {
+          setStatus(statusRes);
+        }
+      } else {
+        setStatus({ connected: false });
+      }
+
+      let parsedSuggestions: PendingSuggestion[] = [];
+      const rawList = Array.isArray(suggRes)
+        ? suggRes
+        : suggRes && Array.isArray(suggRes.suggestions)
+        ? suggRes.suggestions
+        : [];
+
+      parsedSuggestions = rawList.map((item: any) => ({
+        id: item.id,
+        applicationId: item.matched_application_id || item.applicationId,
+        suggestedStage: item.detected_stage || item.suggestedStage || "applied",
+        confidenceScore: item.confidence_score ?? item.confidenceScore ?? 0.85,
+        reasonSnippet: item.snippet || item.subject || item.reasonSnippet || null,
+        createdAt: item.processed_at || item.createdAt || new Date().toISOString(),
+        application: {
+          id: item.matched_application_id || item.application?.id || "",
+          companyName: item.detected_company || item.application?.companyName || "Unknown Company",
+          roleTitle: item.role_title || item.application?.roleTitle || "Application Candidate",
+          currentStage: item.application?.currentStage || "applied",
+        },
+      }));
+
+      setSuggestions(parsedSuggestions);
     } catch (err: any) {
       setError(err?.message || "Failed to load mailbox status");
+      setSuggestions([]);
     } finally {
       setLoading(false);
     }
