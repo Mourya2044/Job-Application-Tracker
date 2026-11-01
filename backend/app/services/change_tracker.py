@@ -89,6 +89,14 @@ def update_stage_manually(
     if stage_update.user_note:
         summary += f" ({stage_update.user_note})"
 
+    manual_decision = {
+        "trigger": TriggerSource.MANUAL_USER_OVERRIDE.value,
+        "from_stage": old_stage,
+        "to_stage": new_stage,
+        "user_note": stage_update.user_note,
+        "action": "user_drag_or_edit",
+    }
+
     event = ApplicationStatusEvent(
         application_id=application.id,
         from_stage=old_stage,
@@ -98,6 +106,8 @@ def update_stage_manually(
         user_note=stage_update.user_note,
         confidence_score=1.0,
         change_summary=summary,
+        decision_metadata=json.dumps(manual_decision),
+        model_version="manual_override",
     )
     db.add(event)
     db.commit()
@@ -112,6 +122,8 @@ def apply_auto_stage_change(
     email_message_id: Optional[str] = None,
     email_subject: Optional[str] = None,
     email_snippet: Optional[str] = None,
+    decision_details: Optional[dict] = None,
+    model_version: Optional[str] = None,
 ) -> Application:
     if not event_data.target_lifecycle_stage:
         return application
@@ -166,6 +178,15 @@ def apply_auto_stage_change(
     meta_json = json.dumps(event_data.model_dump())
     summary = f"Auto-updated from {old_stage} to {target_stage} via email: {event_data.summary_sentence or email_subject or 'Status change detected'}"
 
+    decision_payload = {
+        "trigger": TriggerSource.MAILBOX_AUTO.value,
+        "from_stage": old_stage,
+        "to_stage": target_stage,
+        "confidence": event_data.confidence,
+        "category": event_data.event_category,
+        "match_details": decision_details or {},
+    }
+
     event = ApplicationStatusEvent(
         application_id=application.id,
         from_stage=old_stage,
@@ -178,6 +199,8 @@ def apply_auto_stage_change(
         email_subject=email_subject,
         email_snippet=email_snippet,
         extracted_metadata=meta_json,
+        decision_metadata=json.dumps(decision_payload),
+        model_version=model_version or "gliner2_hybrid",
     )
     db.add(event)
     db.commit()
@@ -217,6 +240,12 @@ def revert_to_event(db: Session, application: Application, target_event_id: str)
         trigger_source=TriggerSource.UNDO_ACTION.value,
         confidence_score=1.0,
         change_summary=f"Reverted stage from {old_stage} back to {revert_stage}",
+        decision_metadata=json.dumps({
+            "trigger": TriggerSource.UNDO_ACTION.value,
+            "reverted_from_event_id": target_event_id,
+            "action": "user_revert",
+        }),
+        model_version="undo_action",
     )
     db.add(undo_event)
     db.commit()

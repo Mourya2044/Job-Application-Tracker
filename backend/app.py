@@ -51,6 +51,7 @@ from app.main import (
     mailbox_router,
     jobs_router,
     ai_router,
+    admin_companies_router,
 )
 from app.db.database import init_db
 from app.services.status_extractor import extract_email_status_event
@@ -452,6 +453,7 @@ fastapi_app.include_router(applications_router)
 fastapi_app.include_router(mailbox_router)
 fastapi_app.include_router(jobs_router)
 fastapi_app.include_router(ai_router)
+fastapi_app.include_router(admin_companies_router)
 
 # Mount Pub/Sub webhook handlers at root-level and /api aliases so any GCP push configuration succeeds
 from app.routers.mailbox import gmail_pubsub_webhook, verify_pubsub_endpoint

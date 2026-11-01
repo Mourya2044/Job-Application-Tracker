@@ -1,0 +1,24 @@
+{
+  "name": "track-platform",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Next-generation Career Intelligence Platform (track.mourya.tech)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace=apps/api run dev",
+    "dev:web": "npm --workspace=apps/web run dev",
+    "build:shared": "npm --workspace=packages/shared run build",
+    "build:api": "npm --workspace=apps/api run build",
+    "build:web": "npm --workspace=apps/web run build",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "test": "npm run --workspaces --if-present test",
+    "typecheck": "npm run --workspaces --if-present typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
+

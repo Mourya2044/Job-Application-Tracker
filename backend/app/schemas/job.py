@@ -57,3 +57,40 @@ class SavedJobRead(SavedJobCreate):
     id: str
     created_at: datetime
 
+
+class JobPostingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    external_job_id: Optional[str] = None
+    company_name: str
+    company_domain: Optional[str] = None
+    role_title: str
+    job_url: str
+    salary_range: Optional[str] = None
+    location: Optional[str] = None
+    department: Optional[str] = None
+    description_snippet: Optional[str] = None
+    source_type: str = "scraped"
+    first_seen_at: datetime
+    last_seen_at: datetime
+    is_expired: bool = False
+    expired_at: Optional[datetime] = None
+    repost_detected: bool = False
+    original_posting_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class JobIntelligenceStats(BaseModel):
+    total_market_jobs: int
+    active_jobs: int
+    expired_jobs: int
+    reposted_jobs: int
+    total_companies: int
+    salary_disclosed_count: int
+    top_departments: List[dict]
+    latest_expirations: List[JobPostingRead]
+    latest_reposts: List[JobPostingRead]
+
+

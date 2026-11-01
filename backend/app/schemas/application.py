@@ -20,6 +20,8 @@ class ApplicationStatusEventRead(BaseModel):
     email_subject: Optional[str] = None
     email_snippet: Optional[str] = None
     extracted_metadata: Optional[str] = None
+    decision_metadata: Optional[str] = None
+    model_version: Optional[str] = None
 
 
 class ApplicationBase(BaseModel):

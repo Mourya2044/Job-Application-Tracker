@@ -21,6 +21,7 @@ from app.config import (
     GMAIL_PUBSUB_TOPIC,
 )
 from app.db.models import UserMailboxConsent, utc_now
+from app.services.security import encrypt_token, decrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +145,8 @@ def exchange_oauth_code(code: str, redirect_uri: str, db: Session) -> UserMailbo
     consent.consent_timestamp = utc_now()
     consent.scopes_granted = ",".join(GMAIL_SCOPES)
     if creds_data.get("refresh_token"):
-        consent.refresh_token = creds_data["refresh_token"]
-    consent.access_token = creds_data["access_token"]
+        consent.refresh_token = encrypt_token(creds_data["refresh_token"])
+    consent.access_token = encrypt_token(creds_data["access_token"])
     if creds_data.get("expires_in"):
         consent.token_expiry = utc_now() + timedelta(seconds=creds_data["expires_in"])
     if user_email:
@@ -175,9 +176,11 @@ def get_current_credentials(
 
     # 1. First priority: database record
     if consent and consent.refresh_token:
+        raw_refresh = decrypt_token(consent.refresh_token)
+        raw_access = decrypt_token(consent.access_token)
         creds = Credentials(
-            token=consent.access_token,
-            refresh_token=consent.refresh_token,
+            token=raw_access,
+            refresh_token=raw_refresh,
             token_uri="https://oauth2.googleapis.com/token",
             client_id=client_id,
             client_secret=client_secret,
@@ -198,7 +201,7 @@ def get_current_credentials(
             try:
                 creds.refresh(Request())
                 if consent:
-                    consent.access_token = creds.token
+                    consent.access_token = encrypt_token(creds.token)
                     if creds.expiry:
                         consent.token_expiry = creds.expiry
                     if db:
@@ -289,8 +292,8 @@ def perform_google_login(db: Session) -> UserMailboxConsent:
     consent.is_sync_enabled = True
     consent.consent_timestamp = utc_now()
     consent.scopes_granted = ",".join(GMAIL_SCOPES)
-    consent.refresh_token = creds.refresh_token
-    consent.access_token = creds.token
+    consent.refresh_token = encrypt_token(creds.refresh_token)
+    consent.access_token = encrypt_token(creds.token)
     if creds.expiry:
         consent.token_expiry = creds.expiry
     if user_email:

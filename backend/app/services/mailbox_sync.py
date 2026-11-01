@@ -17,7 +17,7 @@ from app.services.consent_manager import (
     is_sync_authorized,
     get_current_credentials,
 )
-from app.services.resolver import resolve_application_match
+from app.services.resolver import resolve_application_match, resolve_application_match_with_details
 from app.services.status_extractor import extract_email_status_event, sanitize_email_body
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,129 @@ TARGETED_JOB_QUERY = (
 )
 
 
+def process_single_email_message(
+    db: Session,
+    service,
+    msg_id: str,
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Idempotent single email processor with dead-letter failure isolation.
+    Guarantees duplicate delivery does not create redundant status transitions.
+    """
+    existing_log = db.query(EmailLog).filter(EmailLog.message_id == msg_id).first()
+    if existing_log and existing_log.processing_status == "processed":
+        return {"status": "duplicate_skipped", "message_id": msg_id, "updated": False}
+
+    attempts = (existing_log.processing_attempts if existing_log else 0.0) + 1.0
+
+    try:
+        msg = service.users().messages().get(userId="me", id=msg_id).execute()
+        payload = msg.get("payload", {})
+        subject = get_header(payload, "Subject")
+        sender = get_header(payload, "From")
+        raw_body = get_email_body(payload)
+        snippet = msg.get("snippet", "")
+
+        event = extract_email_status_event(subject=subject, raw_body=raw_body, sender=sender)
+
+        if not event.is_job_related:
+            if not existing_log:
+                existing_log = EmailLog(message_id=msg_id)
+                db.add(existing_log)
+            existing_log.thread_id = msg.get("threadId")
+            existing_log.sender = sender
+            existing_log.subject = subject
+            existing_log.snippet = snippet
+            existing_log.received_at = utc_now()
+            existing_log.match_status = "non_job"
+            existing_log.processing_status = "processed"
+            existing_log.processing_attempts = attempts
+            existing_log.correlation_id = correlation_id
+            existing_log.raw_classification = json.dumps(event.model_dump())
+            db.commit()
+            return {"status": "non_job", "message_id": msg_id, "updated": False}
+
+        matched_app, match_details = resolve_application_match_with_details(
+            db, event, sender=sender, subject=subject
+        )
+        match_status = "unmatched"
+        matched_app_id = None
+        updated_app_info = None
+
+        if matched_app:
+            matched_app_id = matched_app.id
+            match_status = "matched_auto" if not matched_app.stage_locked else "suggested"
+
+            apply_auto_stage_change(
+                db=db,
+                application=matched_app,
+                event_data=event,
+                email_message_id=msg_id,
+                email_subject=subject,
+                email_snippet=snippet,
+                decision_details=match_details,
+            )
+            updated_app_info = {
+                "application_id": matched_app.id,
+                "company_name": matched_app.company_name,
+                "new_stage": matched_app.current_stage,
+                "event_category": event.event_category,
+                "is_new": False,
+            }
+        elif event.company_name and event.is_job_related:
+            match_status = "untracked_candidate"
+            updated_app_info = {
+                "application_id": None,
+                "company_name": event.company_name,
+                "new_stage": event.target_lifecycle_stage.value if event.target_lifecycle_stage else "applied",
+                "event_category": event.event_category,
+                "is_pending_confirmation": True,
+            }
+
+        if not existing_log:
+            existing_log = EmailLog(message_id=msg_id)
+            db.add(existing_log)
+
+        existing_log.thread_id = msg.get("threadId")
+        existing_log.sender = sender
+        existing_log.subject = subject
+        existing_log.snippet = snippet
+        existing_log.received_at = utc_now()
+        existing_log.detected_company = event.company_name
+        existing_log.detected_stage = event.target_lifecycle_stage.value if event.target_lifecycle_stage else None
+        existing_log.matched_application_id = matched_app_id
+        existing_log.match_status = match_status
+        existing_log.processing_status = "processed"
+        existing_log.processing_attempts = attempts
+        existing_log.correlation_id = correlation_id
+        existing_log.error_details = None
+        existing_log.raw_classification = json.dumps(event.model_dump())
+        db.commit()
+
+        return {
+            "status": "processed",
+            "message_id": msg_id,
+            "updated": bool(updated_app_info),
+            "app_info": updated_app_info,
+        }
+
+    except Exception as exc:
+        logger.error("Error processing email message %s: %s", msg_id, exc)
+        if not existing_log:
+            existing_log = EmailLog(message_id=msg_id)
+            db.add(existing_log)
+        existing_log.processing_status = "failed"
+        existing_log.processing_attempts = attempts
+        existing_log.error_details = str(exc)[:1000]
+        existing_log.correlation_id = correlation_id
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+        return {"status": "failed", "message_id": msg_id, "updated": False, "error": str(exc)}
+
+
 def sync_mailbox_events(
     db: Session,
     query: Optional[str] = None,
@@ -112,78 +235,12 @@ def sync_mailbox_events(
 
         for msg_meta in messages:
             msg_id = msg_meta["id"]
-
-            # Check if email already processed
-            existing_log = db.query(EmailLog).filter(EmailLog.message_id == msg_id).first()
-            if existing_log:
-                continue
-
-            # Fetch full message
-            msg = service.users().messages().get(userId="me", id=msg_id).execute()
-            payload = msg.get("payload", {})
-            subject = get_header(payload, "Subject")
-            sender = get_header(payload, "From")
-            raw_body = get_email_body(payload)
-            snippet = msg.get("snippet", "")
-
-            # Classify & extract event
-            event = extract_email_status_event(subject=subject, raw_body=raw_body, sender=sender)
-            processed_count += 1
-
-            if not event.is_job_related:
-                continue
-
-            # Resolve to existing application
-            matched_app = resolve_application_match(db, event, sender=sender, subject=subject)
-            match_status = "unmatched"
-            matched_app_id = None
-
-            if matched_app:
-                matched_app_id = matched_app.id
-                match_status = "matched_auto" if not matched_app.stage_locked else "suggested"
-
-                apply_auto_stage_change(
-                    db=db,
-                    application=matched_app,
-                    event_data=event,
-                    email_message_id=msg_id,
-                    email_subject=subject,
-                    email_snippet=snippet,
-                )
+            res = process_single_email_message(db, service, msg_id)
+            if res.get("status") in ("processed", "non_job"):
+                processed_count += 1
+            if res.get("updated") and res.get("app_info"):
                 updates_count += 1
-                updated_applications.append({
-                    "application_id": matched_app.id,
-                    "company_name": matched_app.company_name,
-                    "new_stage": matched_app.current_stage,
-                    "event_category": event.event_category,
-                    "is_new": False,
-                })
-            elif event.company_name and event.is_job_related:
-                match_status = "untracked_candidate"
-                updates_count += 1
-                updated_applications.append({
-                    "application_id": None,
-                    "company_name": event.company_name,
-                    "new_stage": event.target_lifecycle_stage.value if event.target_lifecycle_stage else "applied",
-                    "event_category": event.event_category,
-                    "is_pending_confirmation": True,
-                })
-
-            email_log = EmailLog(
-                message_id=msg_id,
-                thread_id=msg.get("threadId"),
-                sender=sender,
-                subject=subject,
-                snippet=snippet,
-                received_at=utc_now(),
-                detected_company=event.company_name,
-                detected_stage=event.target_lifecycle_stage.value if event.target_lifecycle_stage else None,
-                matched_application_id=matched_app_id,
-                match_status=match_status,
-                raw_classification=json.dumps(event.model_dump()),
-            )
-            db.add(email_log)
-            db.commit()
+                updated_applications.append(res["app_info"])
 
         # Update last synced time & historyId on consent record
         consent.last_synced_at = utc_now()
@@ -264,10 +321,17 @@ def sync_mailbox_history_events(
                 .execute()
             )
         except HttpError as http_err:
-            if http_err.resp.status == 404:
-                # History ID has expired (older than ~30 days) -> fallback to baseline query
-                logger.warning("History ID expired for %s; running fallback sync", consent.user_email)
-                result = sync_mailbox_events(db, consent=consent)
+            if http_err.resp.status in (404, 400):
+                # History ID has expired (older than ~30 days or invalidated) -> reconciliation fallback
+                logger.warning(
+                    "History ID %s expired for %s (status %s); running reconciliation sync",
+                    consent.last_history_id,
+                    consent.user_email,
+                    http_err.resp.status,
+                )
+                consent.last_history_id = None
+                db.commit()
+                result = sync_mailbox_events(db, query="newer_than:7d", consent=consent)
                 return result
             raise http_err
 
@@ -305,76 +369,12 @@ def sync_mailbox_history_events(
         updated_applications = []
 
         for msg_id in new_msg_ids:
-            # Check if email already processed
-            existing_log = db.query(EmailLog).filter(EmailLog.message_id == msg_id).first()
-            if existing_log:
-                continue
-
-            msg = service.users().messages().get(userId="me", id=msg_id).execute()
-            payload = msg.get("payload", {})
-            subject = get_header(payload, "Subject")
-            sender = get_header(payload, "From")
-            raw_body = get_email_body(payload)
-            snippet = msg.get("snippet", "")
-
-            # Classify & extract event
-            event = extract_email_status_event(subject=subject, raw_body=raw_body, sender=sender)
-            processed_count += 1
-
-            if not event.is_job_related:
-                continue
-
-            # Resolve to existing application
-            matched_app = resolve_application_match(db, event, sender=sender, subject=subject)
-            match_status = "unmatched"
-            matched_app_id = None
-
-            if matched_app:
-                matched_app_id = matched_app.id
-                match_status = "matched_auto" if not matched_app.stage_locked else "suggested"
-
-                apply_auto_stage_change(
-                    db=db,
-                    application=matched_app,
-                    event_data=event,
-                    email_message_id=msg_id,
-                    email_subject=subject,
-                    email_snippet=snippet,
-                )
+            res = process_single_email_message(db, service, msg_id)
+            if res.get("status") in ("processed", "non_job"):
+                processed_count += 1
+            if res.get("updated") and res.get("app_info"):
                 updates_count += 1
-                updated_applications.append({
-                    "application_id": matched_app.id,
-                    "company_name": matched_app.company_name,
-                    "new_stage": matched_app.current_stage,
-                    "event_category": event.event_category,
-                    "is_new": False,
-                })
-            elif event.company_name and event.is_job_related:
-                match_status = "untracked_candidate"
-                updates_count += 1
-                updated_applications.append({
-                    "application_id": None,
-                    "company_name": event.company_name,
-                    "new_stage": event.target_lifecycle_stage.value if event.target_lifecycle_stage else "applied",
-                    "event_category": event.event_category,
-                    "is_pending_confirmation": True,
-                })
-
-            email_log = EmailLog(
-                message_id=msg_id,
-                thread_id=msg.get("threadId"),
-                sender=sender,
-                subject=subject,
-                snippet=snippet,
-                received_at=utc_now(),
-                detected_company=event.company_name,
-                detected_stage=event.target_lifecycle_stage.value if event.target_lifecycle_stage else None,
-                matched_application_id=matched_app_id,
-                match_status=match_status,
-                raw_classification=json.dumps(event.model_dump()),
-            )
-            db.add(email_log)
-            db.commit()
+                updated_applications.append(res["app_info"])
 
         # Update consent record with new historyId
         new_history_id = history_res.get("historyId")

@@ -1,19 +1,24 @@
 import React, { useState, useEffect } from "react"
-import { 
-  Search, 
-  MapPin, 
-  Briefcase, 
-  DollarSign, 
-  Bookmark, 
-  ExternalLink, 
-  Plus, 
-  Check, 
-  Sparkles, 
-  Globe, 
+import {
+  Search,
+  MapPin,
+  Briefcase,
+  DollarSign,
+  Bookmark,
+  ExternalLink,
+  Plus,
+  Check,
+  Sparkles,
+  Globe,
   RefreshCw,
   Building2,
   SlidersHorizontal,
-  X
+  X,
+  Settings,
+  Trash2,
+  ShieldCheck,
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react"
 import { toast } from "sonner"
 import { fetchApi } from "@/config/api"
@@ -35,7 +40,33 @@ export function JobScraperView({ onImportJob }) {
   const [trackedJobIds, setTrackedJobIds] = useState(new Set())
   const [isSearching, setIsSearching] = useState(false)
   const [showAdvancedScraper, setShowAdvancedScraper] = useState(false)
-  
+
+  // Dynamic Company Career Pages state
+  const [companiesList, setCompaniesList] = useState(POPULAR_COMPANIES)
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false)
+  const [adminCompanies, setAdminCompanies] = useState([])
+  const [adminSearchQuery, setAdminSearchQuery] = useState("")
+  const [isLoadingAdmin, setIsLoadingAdmin] = useState(false)
+  const [syncingCompanyId, setSyncingCompanyId] = useState(null)
+  const [isSyncingAll, setIsSyncingAll] = useState(false)
+  const [editingCompanyId, setEditingCompanyId] = useState(null)
+  const [editCompanyForm, setEditCompanyForm] = useState({
+    name: "",
+    slug: "",
+    provider: "greenhouse",
+    domain: "",
+    career_url: "",
+  })
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newCompany, setNewCompany] = useState({
+    name: "",
+    slug: "",
+    provider: "greenhouse",
+    domain: "",
+    career_url: "",
+    logo_color: "#60a5fa",
+  })
+
   // Advanced scraper states
   const [atsProvider, setAtsProvider] = useState("greenhouse")
   const [atsSlug, setAtsSlug] = useState("stripe")
@@ -46,7 +77,7 @@ export function JobScraperView({ onImportJob }) {
   const [isAnalyzingFit, setIsAnalyzingFit] = useState(false)
   const [fitResult, setFitResult] = useState(null)
   const [candidateResume, setCandidateResume] = useState(() => {
-    return localStorage.getItem("job_tracker_user_resume") || 
+    return localStorage.getItem("job_tracker_user_resume") ||
       "Full-stack software engineer with experience in Python, FastAPI, React, PostgreSQL, Docker, AWS, and system design."
   })
 
@@ -89,7 +120,160 @@ export function JobScraperView({ onImportJob }) {
 
   useEffect(() => {
     loadSavedJobs()
+    loadCompanies()
   }, [])
+
+  const loadCompanies = async () => {
+    try {
+      const data = await fetchApi("/api/jobs/popular-companies")
+      if (data && Array.isArray(data) && data.length > 0) {
+        setCompaniesList(data)
+      }
+    } catch {
+      // Keep static defaults on error
+    }
+  }
+
+  const loadAdminCompanies = async () => {
+    setIsLoadingAdmin(true)
+    try {
+      const data = await fetchApi("/api/admin/career-pages")
+      if (data && Array.isArray(data)) {
+        setAdminCompanies(data)
+      }
+    } catch {
+      toast.error("Failed to load company career pages")
+    } finally {
+      setIsLoadingAdmin(false)
+    }
+  }
+
+  const handleCreateCompany = async (e) => {
+    e.preventDefault()
+    if (!newCompany.name.trim() || (!newCompany.slug.trim() && !newCompany.career_url.trim())) {
+      toast.error("Please provide company name and slug or career URL")
+      return
+    }
+    try {
+      await fetchApi("/api/admin/career-pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newCompany.name.trim(),
+          slug: newCompany.slug.trim() || newCompany.name.trim().toLowerCase(),
+          provider: newCompany.provider,
+          domain: newCompany.domain.trim() || undefined,
+          career_url: newCompany.career_url.trim() || undefined,
+          logo_color: newCompany.logo_color,
+          is_active: true,
+        }),
+      })
+      toast.success(`Registered ${newCompany.name} career page`)
+      setNewCompany({ name: "", slug: "", provider: "greenhouse", domain: "", career_url: "", logo_color: "#60a5fa" })
+      setShowAddForm(false)
+      loadAdminCompanies()
+      loadCompanies()
+    } catch (err) {
+      toast.error(err.message || "Failed to add company")
+    }
+  }
+
+  const handleToggleCompanyActive = async (comp) => {
+    try {
+      await fetchApi(`/api/admin/career-pages/${comp.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: !comp.is_active }),
+      })
+      toast.success(`${comp.name} is now ${!comp.is_active ? "active" : "inactive"}`)
+      loadAdminCompanies()
+      loadCompanies()
+    } catch {
+      toast.error("Failed to update status")
+    }
+  }
+
+  const handleDeleteCompany = async (comp) => {
+    if (!window.confirm(`Are you sure you want to remove ${comp.name} from monitored companies?`)) return
+    try {
+      await fetchApi(`/api/admin/career-pages/${comp.id}`, { method: "DELETE" })
+      toast.info(`Removed ${comp.name}`)
+      loadAdminCompanies()
+      loadCompanies()
+    } catch {
+      toast.error("Failed to delete company")
+    }
+  }
+
+  const handleSyncCompany = async (comp) => {
+    setSyncingCompanyId(comp.id)
+    try {
+      const res = await fetchApi(`/api/admin/career-pages/${comp.id}/sync`, { method: "POST" })
+      if (res.status === "success") {
+        toast.success(`Synced ${comp.name}: found ${res.jobs_count} live postings`)
+      } else {
+        toast.error(`Sync failed for ${comp.name}: ${res.message}`)
+      }
+      loadAdminCompanies()
+      loadCompanies()
+    } catch (err) {
+      toast.error(err.message || `Failed to sync ${comp.name}`)
+    } finally {
+      setSyncingCompanyId(null)
+    }
+  }
+
+  const handleSyncAllCompanies = async () => {
+    setIsSyncingAll(true)
+    try {
+      const results = await fetchApi("/api/admin/career-pages/sync-all", { method: "POST" })
+      const okCount = Array.isArray(results) ? results.filter(r => r.status === "success").length : 0
+      toast.success(`Batch sync complete: ${okCount} active portals updated`)
+      loadAdminCompanies()
+      loadCompanies()
+    } catch (err) {
+      toast.error(err.message || "Batch sync failed")
+    } finally {
+      setIsSyncingAll(false)
+    }
+  }
+
+  const handleStartEditCompany = (comp) => {
+    setEditingCompanyId(comp.id)
+    setEditCompanyForm({
+      name: comp.name || "",
+      slug: comp.slug || "",
+      provider: comp.provider || "greenhouse",
+      domain: comp.domain || "",
+      career_url: comp.career_url || "",
+    })
+  }
+
+  const handleSaveEditCompany = async (compId) => {
+    if (!editCompanyForm.name.trim() || !editCompanyForm.slug.trim()) {
+      toast.error("Company name and slug are required")
+      return
+    }
+    try {
+      await fetchApi(`/api/admin/career-pages/${compId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editCompanyForm.name.trim(),
+          slug: editCompanyForm.slug.trim(),
+          provider: editCompanyForm.provider,
+          domain: editCompanyForm.domain.trim() || null,
+          career_url: editCompanyForm.career_url.trim() || null,
+        }),
+      })
+      toast.success(`Updated ${editCompanyForm.name}`)
+      setEditingCompanyId(null)
+      loadAdminCompanies()
+      loadCompanies()
+    } catch (err) {
+      toast.error(err.message || "Failed to update company")
+    }
+  }
 
   const loadSavedJobs = async () => {
     try {
@@ -273,8 +457,8 @@ export function JobScraperView({ onImportJob }) {
   // Filter jobs by search query and filter pills
   const filteredJobs = jobs.filter(j => {
     const q = searchInput.toLowerCase()
-    const matchesSearch = !q || 
-      j.title.toLowerCase().includes(q) || 
+    const matchesSearch = !q ||
+      j.title.toLowerCase().includes(q) ||
       j.company_name.toLowerCase().includes(q) ||
       (j.tags && j.tags.some(t => t.toLowerCase().includes(q)))
 
@@ -309,14 +493,28 @@ export function JobScraperView({ onImportJob }) {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAdvancedScraper(!showAdvancedScraper)}
-          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-colors self-start sm:self-auto"
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>{showAdvancedScraper ? "Hide ATS Explorer" : "Direct ATS Explorer"}</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => {
+              setIsAdminModalOpen(true)
+              loadAdminCompanies()
+            }}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-[rgba(212,168,53,0.35)] bg-[rgba(212,168,53,0.08)] text-xs font-mono text-[#d4a853] hover:bg-[rgba(212,168,53,0.16)] transition-all shadow-sm"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>Manage Career Pages</span>
+          </button>
+
+          <button
+            onClick={() => setShowAdvancedScraper(!showAdvancedScraper)}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-[#253048] text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-colors"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>{showAdvancedScraper ? "Hide ATS Explorer" : "Direct ATS Explorer"}</span>
+          </button>
+        </div>
       </div>
+
 
       {/* Advanced ATS Explorer Accordion */}
       {showAdvancedScraper && (
@@ -334,6 +532,7 @@ export function JobScraperView({ onImportJob }) {
               <option value="greenhouse">Greenhouse</option>
               <option value="lever">Lever</option>
               <option value="ashby">Ashby</option>
+              <option value="workable">Workable</option>
             </select>
             <input
               type="text"
@@ -376,21 +575,45 @@ export function JobScraperView({ onImportJob }) {
         </button>
       </form>
 
-      {/* Quick ATS Source Pills */}
-      <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-        <span className="text-[#556178] text-[11px]">Explore Live ATS:</span>
-        {POPULAR_COMPANIES.map(comp => (
+      {/* Quick ATS Source Pills & Deduplication Status */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[#556178] text-[11px]">Explore Live ATS:</span>
+          {companiesList.map(comp => (
+            <button
+              key={comp.slug || comp.id}
+              type="button"
+              onClick={() => handleExploreCompany(comp)}
+              disabled={isSearching}
+              className="px-2.5 py-1 rounded-md bg-[#131926] border border-[#253048] hover:border-[#d4a853] text-[#8a94a8] hover:text-[#d4a853] transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: comp.color || comp.logo_color || "#60a5fa" }}
+              />
+              <span>{comp.name}</span>
+            </button>
+          ))}
           <button
-            key={comp.slug}
             type="button"
-            onClick={() => handleExploreCompany(comp)}
-            disabled={isSearching}
-            className="px-2.5 py-1 rounded-md bg-[#131926] border border-[#253048] hover:border-[#d4a853] text-[#8a94a8] hover:text-[#d4a853] transition-colors disabled:opacity-50"
+            onClick={() => {
+              setIsAdminModalOpen(true)
+              loadAdminCompanies()
+            }}
+            className="px-2 py-1 rounded-md border border-dashed border-[#253048] hover:border-[#d4a853] text-[#556178] hover:text-[#d4a853] transition-colors flex items-center gap-1 text-[11px]"
+            title="Register new company career portal"
           >
-            {comp.name}
+            <Plus className="w-3 h-3" />
+            <span>Manage</span>
           </button>
-        ))}
+        </div>
+
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[rgba(16,185,129,0.08)] border border-[rgba(16,185,129,0.2)] text-[#34d399] text-[11px] font-mono">
+          <ShieldCheck className="w-3.5 h-3.5 text-[#10b981]" />
+          <span>Deduplication: Jaccard + Edit Dist + Vectors</span>
+        </div>
       </div>
+
 
       {/* Filter Pills matching code.html */}
       <div className="flex flex-wrap gap-2">
@@ -400,11 +623,10 @@ export function JobScraperView({ onImportJob }) {
             <button
               key={f.key}
               onClick={() => setActiveFilter(f.key)}
-              className={`font-mono text-xs px-3.5 py-1.5 rounded-full border transition-all ${
-                isActive
+              className={`font-mono text-xs px-3.5 py-1.5 rounded-full border transition-all ${isActive
                   ? "bg-[rgba(212,168,53,0.15)] border-[#d4a853] text-[#d4a853] font-semibold"
                   : "border-[#253048] text-[#8a94a8] hover:border-[#556178] hover:text-[#e8e4dc]"
-              }`}
+                }`}
             >
               {f.label}
             </button>
@@ -464,7 +686,7 @@ export function JobScraperView({ onImportJob }) {
                 {/* Header: Logo, Info & Save Bookmark */}
                 <div className="flex items-start justify-between gap-4 mb-3">
                   <div className="flex items-start gap-3.5 min-w-0">
-                    <div 
+                    <div
                       className="w-11 h-11 rounded-lg flex items-center justify-center font-mono font-bold text-sm shrink-0 border border-white/5"
                       style={{ backgroundColor: job.logoBg, color: job.logoColor }}
                     >
@@ -482,11 +704,10 @@ export function JobScraperView({ onImportJob }) {
 
                   <button
                     onClick={() => toggleSave(job)}
-                    className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-all shrink-0 ${
-                      isSaved
+                    className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-all shrink-0 ${isSaved
                         ? "bg-[rgba(212,168,53,0.15)] border-[#d4a853] text-[#d4a853]"
                         : "border-[#253048] text-[#556178] hover:border-[#d4a853] hover:text-[#d4a853]"
-                    }`}
+                      }`}
                     title={isSaved ? "Saved to your list" : "Save job"}
                   >
                     <Bookmark className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
@@ -576,11 +797,11 @@ export function JobScraperView({ onImportJob }) {
 
       {/* ZeroGPU AI Fit Modal */}
       {isFitModalOpen && selectedFitJob && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(4,6,12,0.8)] backdrop-blur-sm animate-fadeIn"
           onClick={() => setIsFitModalOpen(false)}
         >
-          <div 
+          <div
             className="bg-[#131926] border border-[#253048] rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fadeUp overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
@@ -773,6 +994,374 @@ export function JobScraperView({ onImportJob }) {
           </div>
         </div>
       )}
+
+      {/* Admin Career Pages Directory Modal */}
+      {isAdminModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-4xl max-h-[90vh] bg-[#0c1019] border border-[#253048] rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-scaleUp">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-[#253048] flex items-center justify-between bg-[#131926]/60">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[rgba(212,168,53,0.12)] border border-[rgba(212,168,53,0.3)] flex items-center justify-center text-[#d4a853]">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-serif font-bold text-[#e8e4dc] flex items-center gap-2">
+                    <span>Company Career Pages Directory</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-[#253048] text-[#8a94a8]">
+                      Admin
+                    </span>
+                  </h2>
+                  <p className="text-xs text-[#8a94a8] font-sans">
+                    Manage ATS integration endpoints, trigger live scrapes, and control monitored company portals.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsAdminModalOpen(false)}
+                className="w-8 h-8 rounded-lg border border-[#253048] flex items-center justify-center text-[#8a94a8] hover:text-[#e8e4dc] hover:border-[#556178] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Metrics Bar */}
+            <div className="grid grid-cols-3 gap-3 p-4 bg-[#080b12] border-b border-[#253048] text-center font-mono">
+              <div className="p-2.5 rounded-lg bg-[#131926] border border-[#1e2738]">
+                <div className="text-[10px] uppercase text-[#556178]">Total Companies</div>
+                <div className="text-base font-bold text-[#e8e4dc] mt-0.5">{adminCompanies.length}</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#131926] border border-[#1e2738]">
+                <div className="text-[10px] uppercase text-[#556178]">Active Monitored</div>
+                <div className="text-base font-bold text-[#34d399] mt-0.5">
+                  {adminCompanies.filter(c => c.is_active).length}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-[#131926] border border-[#1e2738]">
+                <div className="text-[10px] uppercase text-[#556178]">Total Roles Discovered</div>
+                <div className="text-base font-bold text-[#d4a853] mt-0.5">
+                  {adminCompanies.reduce((acc, c) => acc + (c.total_jobs_found || 0), 0)}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body / Scrollable Content */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              {/* Add Company Trigger / Form */}
+              <div className="p-4 rounded-xl bg-[#131926] border border-[#253048] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-mono text-xs text-[#d4a853] font-semibold">
+                    <Plus className="w-4 h-4" />
+                    <span>Register New Company Career Page</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    className="text-xs font-mono text-[#8a94a8] hover:text-[#e8e4dc] underline"
+                  >
+                    {showAddForm ? "Collapse Form" : "+ Add Company"}
+                  </button>
+                </div>
+
+                {showAddForm && (
+                  <form onSubmit={handleCreateCompany} className="pt-2 space-y-3 border-t border-[#1e2738]">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-mono text-[#8a94a8] mb-1">Company Name *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Notion, OpenAI, Datadog"
+                          value={newCompany.name}
+                          onChange={e => setNewCompany({ ...newCompany, name: e.target.value })}
+                          className="w-full h-8 px-2.5 rounded-lg bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono focus:outline-none focus:border-[#d4a853]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-mono text-[#8a94a8] mb-1">ATS Provider</label>
+                        <select
+                          value={newCompany.provider}
+                          onChange={e => setNewCompany({ ...newCompany, provider: e.target.value })}
+                          className="w-full h-8 px-2 rounded-lg bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono focus:outline-none focus:border-[#d4a853]"
+                        >
+                          <option value="greenhouse">Greenhouse (boards-api.greenhouse.io)</option>
+                          <option value="lever">Lever (api.lever.co)</option>
+                          <option value="ashby">Ashby (api.ashbyhq.com)</option>
+                          <option value="workable">Workable</option>
+                          <option value="json_ld">JSON-LD / Custom Career URL</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-mono text-[#8a94a8] mb-1">Board Slug or Career URL *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. 'notion' or 'https://boards.greenhouse.io/notion'"
+                          value={newCompany.slug}
+                          onChange={e => setNewCompany({ ...newCompany, slug: e.target.value })}
+                          className="w-full h-8 px-2.5 rounded-lg bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono focus:outline-none focus:border-[#d4a853]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-mono text-[#8a94a8] mb-1">Domain (Optional)</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. notion.so"
+                          value={newCompany.domain}
+                          onChange={e => setNewCompany({ ...newCompany, domain: e.target.value })}
+                          className="w-full h-8 px-2.5 rounded-lg bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono focus:outline-none focus:border-[#d4a853]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-mono text-[#8a94a8] mb-1">Career URL (Optional)</label>
+                        <input
+                          type="url"
+                          placeholder="https://notion.so/careers"
+                          value={newCompany.career_url}
+                          onChange={e => setNewCompany({ ...newCompany, career_url: e.target.value })}
+                          className="w-full h-8 px-2.5 rounded-lg bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono focus:outline-none focus:border-[#d4a853]"
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          className="w-full h-8 px-4 rounded-lg bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] text-xs font-mono font-semibold transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Save Company</span>
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              {/* Companies Table / Card List */}
+              <div className="space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono text-[#556178] px-1">
+                  <span>Registered Career Portals ({adminCompanies.length})</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Filter by name, slug, or ATS..."
+                      value={adminSearchQuery}
+                      onChange={e => setAdminSearchQuery(e.target.value)}
+                      className="h-7 px-2.5 rounded-lg bg-[#0c1019] border border-[#253048] text-[11px] text-[#e8e4dc] placeholder:text-[#556178] font-mono focus:outline-none focus:border-[#d4a853]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSyncAllCompanies}
+                      disabled={isSyncingAll || isLoadingAdmin}
+                      className="px-2.5 py-1 rounded-lg border border-[rgba(212,168,53,0.35)] bg-[rgba(212,168,53,0.08)] text-[#d4a853] hover:bg-[rgba(212,168,53,0.16)] flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isSyncingAll ? "animate-spin" : ""}`} />
+                      <span>{isSyncingAll ? "Syncing All..." : "Sync All Active"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={loadAdminCompanies}
+                      disabled={isLoadingAdmin}
+                      className="hover:text-[#e8e4dc] flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isLoadingAdmin ? "animate-spin" : ""}`} />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+                </div>
+
+                {isLoadingAdmin && adminCompanies.length === 0 ? (
+                  <div className="text-center py-10 font-mono text-xs text-[#8a94a8] flex items-center justify-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-[#d4a853]" />
+                    <span>Loading directory...</span>
+                  </div>
+                ) : adminCompanies.length === 0 ? (
+                  <div className="text-center py-8 bg-[#131926] border border-[#253048] rounded-xl text-xs font-mono text-[#556178]">
+                    No company career pages registered yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {adminCompanies
+                      .filter(comp => {
+                        const q = adminSearchQuery.trim().toLowerCase()
+                        if (!q) return true
+                        return (
+                          comp.name?.toLowerCase().includes(q) ||
+                          comp.slug?.toLowerCase().includes(q) ||
+                          comp.provider?.toLowerCase().includes(q)
+                        )
+                      })
+                      .map(comp => (
+                        <div
+                          key={comp.id}
+                          className="p-3.5 rounded-xl bg-[#131926] border border-[#253048] flex flex-col gap-3 hover:border-[#384666] transition-colors"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm font-mono shrink-0"
+                                style={{
+                                  backgroundColor: `${comp.logo_color || "#60a5fa"}20`,
+                                  color: comp.logo_color || "#60a5fa",
+                                  border: `1px solid ${comp.logo_color || "#60a5fa"}40`,
+                                }}
+                              >
+                                {comp.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-serif font-semibold text-sm text-[#e8e4dc]">{comp.name}</span>
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-[#1e2738] text-[#8a94a8]">
+                                    {comp.provider}
+                                  </span>
+                                  {comp.is_active ? (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-[#34d399] bg-[rgba(16,185,129,0.1)]">
+                                      Active
+                                    </span>
+                                  ) : (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-[#f87171] bg-[rgba(248,113,113,0.1)]">
+                                      Disabled
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] font-mono text-[#556178] flex flex-wrap items-center gap-3 mt-0.5">
+                                  <span>slug: {comp.slug}</span>
+                                  {comp.domain && <span>domain: {comp.domain}</span>}
+                                  {comp.last_synced_at && (
+                                    <span>synced: {new Date(comp.last_synced_at).toLocaleDateString()}</span>
+                                  )}
+                                  <span>jobs found: {comp.total_jobs_found || 0}</span>
+                                </div>
+                                {comp.last_sync_status === "failed" && comp.last_error_message && (
+                                  <div className="text-[10px] font-mono text-[#f87171] mt-1">
+                                    Sync error: {comp.last_error_message}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 self-end sm:self-auto font-mono text-xs">
+                              <button
+                                type="button"
+                                onClick={() => handleSyncCompany(comp)}
+                                disabled={syncingCompanyId === comp.id}
+                                className="px-2.5 py-1 rounded-lg border border-[#253048] hover:border-[#d4a853] hover:text-[#d4a853] text-[#8a94a8] transition-colors flex items-center gap-1.5 text-[11px] disabled:opacity-50"
+                                title="Scrape & Sync Postings Now"
+                              >
+                                <RefreshCw className={`w-3 h-3 ${syncingCompanyId === comp.id ? "animate-spin text-[#d4a853]" : ""}`} />
+                                <span>{syncingCompanyId === comp.id ? "Syncing..." : "Sync"}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => editingCompanyId === comp.id ? setEditingCompanyId(null) : handleStartEditCompany(comp)}
+                                className="px-2.5 py-1 rounded-lg border border-[#253048] hover:border-[#556178] text-[#8a94a8] hover:text-[#e8e4dc] transition-colors text-[11px]"
+                              >
+                                {editingCompanyId === comp.id ? "Cancel" : "Edit"}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCompanyActive(comp)}
+                                className="px-2.5 py-1 rounded-lg border border-[#253048] hover:border-[#556178] text-[#8a94a8] hover:text-[#e8e4dc] transition-colors text-[11px]"
+                                title="Toggle active status"
+                              >
+                                {comp.is_active ? "Disable" : "Enable"}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCompany(comp)}
+                                className="p-1 rounded-lg border border-[#253048] hover:border-[#ef4444] text-[#8a94a8] hover:text-[#ef4444] transition-colors"
+                                title="Delete Company"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {editingCompanyId === comp.id && (
+                            <div className="pt-3 border-t border-[#1e2738] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 items-end">
+                              <div>
+                                <label className="block text-[10px] font-mono text-[#8a94a8] mb-1">Name</label>
+                                <input
+                                  type="text"
+                                  value={editCompanyForm.name}
+                                  onChange={e => setEditCompanyForm({ ...editCompanyForm, name: e.target.value })}
+                                  className="w-full h-7 px-2 rounded bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-mono text-[#8a94a8] mb-1">Provider</label>
+                                <select
+                                  value={editCompanyForm.provider}
+                                  onChange={e => setEditCompanyForm({ ...editCompanyForm, provider: e.target.value })}
+                                  className="w-full h-7 px-2 rounded bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono"
+                                >
+                                  <option value="greenhouse">Greenhouse</option>
+                                  <option value="lever">Lever</option>
+                                  <option value="ashby">Ashby</option>
+                                  <option value="workable">Workable</option>
+                                  <option value="json_ld">JSON-LD</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-mono text-[#8a94a8] mb-1">Slug</label>
+                                <input
+                                  type="text"
+                                  value={editCompanyForm.slug}
+                                  onChange={e => setEditCompanyForm({ ...editCompanyForm, slug: e.target.value })}
+                                  className="w-full h-7 px-2 rounded bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-mono text-[#8a94a8] mb-1">Domain</label>
+                                <input
+                                  type="text"
+                                  value={editCompanyForm.domain}
+                                  onChange={e => setEditCompanyForm({ ...editCompanyForm, domain: e.target.value })}
+                                  className="w-full h-7 px-2 rounded bg-[#0c1019] border border-[#253048] text-xs text-[#e8e4dc] font-mono"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditCompany(comp.id)}
+                                className="h-7 px-3 rounded bg-[#d4a853] hover:bg-[#e6c06a] text-[#080b12] text-xs font-mono font-semibold"
+                              >
+                                Save Changes
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-[#253048] bg-[#080b12] flex items-center justify-between">
+              <span className="text-[11px] font-mono text-[#556178]">
+                Registered companies dynamically appear in search and live filters.
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsAdminModalOpen(false)}
+                className="px-4 py-1.5 rounded-lg bg-[#253048] hover:bg-[#384666] text-xs font-mono text-[#e8e4dc] transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+

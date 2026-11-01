@@ -1,15 +1,26 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.config import FRONTEND_URL
-from app.db.database import init_db
+from app.db.database import init_db, get_db
+from app.db.models import (
+    Application,
+    ApplicationStatusEvent,
+    CompanyCareerPage,
+    EmailLog,
+    JobPosting,
+    UserMailboxConsent,
+)
 from app.routers.applications import router as applications_router
 from app.routers.mailbox import router as mailbox_router
 from app.routers.jobs import router as jobs_router
 from app.routers.ai import router as ai_router
+from app.routers.admin_companies import router as admin_companies_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tracking_app")
@@ -45,6 +56,7 @@ app.include_router(applications_router)
 app.include_router(mailbox_router)
 app.include_router(jobs_router)
 app.include_router(ai_router)
+app.include_router(admin_companies_router)
 
 
 @app.get("/health")
@@ -55,6 +67,58 @@ def health():
         "status": "online",
         "sync_mode": "pubsub_webhook",
         "docs_url": "/docs",
+    }
+
+
+@app.get("/api/system/metrics")
+def get_system_metrics(db: Session = Depends(get_db)):
+    """
+    Exposes operational observability metrics:
+    - Mailbox processing counters, success rates, dead-letter isolating count
+    - Scraper health stats, market intelligence counts, expiration counts
+    - Total application and audit event counts
+    """
+    total_emails = db.query(EmailLog).count()
+    processed_emails = db.query(EmailLog).filter(EmailLog.processing_status == "processed").count()
+    failed_emails = db.query(EmailLog).filter(EmailLog.processing_status == "failed").count()
+    matched_auto = db.query(EmailLog).filter(EmailLog.match_status == "matched_auto").count()
+    suggested_emails = db.query(EmailLog).filter(EmailLog.match_status == "suggested").count()
+
+    total_companies = db.query(CompanyCareerPage).count()
+    active_companies = db.query(CompanyCareerPage).filter(CompanyCareerPage.is_active.is_(True)).count()
+    total_market_jobs = db.query(JobPosting).count()
+    active_market_jobs = db.query(JobPosting).filter(JobPosting.is_expired.is_(False)).count()
+    expired_market_jobs = db.query(JobPosting).filter(JobPosting.is_expired.is_(True)).count()
+    reposted_market_jobs = db.query(JobPosting).filter(JobPosting.repost_detected.is_(True)).count()
+
+    total_apps = db.query(Application).count()
+    total_events = db.query(ApplicationStatusEvent).count()
+
+    user_consent = db.query(UserMailboxConsent).first()
+    mailbox_connected = user_consent is not None and bool(user_consent.refresh_token or user_consent.access_token)
+
+    return {
+        "mailbox": {
+            "connected": mailbox_connected,
+            "total_emails_ingested": total_emails,
+            "processed_success": processed_emails,
+            "failed_dead_letter": failed_emails,
+            "matched_auto_transitions": matched_auto,
+            "suggested_review_pending": suggested_emails,
+            "success_rate_percent": round((processed_emails / total_emails * 100), 2) if total_emails > 0 else 100.0,
+        },
+        "market_intelligence": {
+            "monitored_companies": total_companies,
+            "active_monitored_companies": active_companies,
+            "total_market_postings": total_market_jobs,
+            "active_postings": active_market_jobs,
+            "expired_postings": expired_market_jobs,
+            "reposts_detected": reposted_market_jobs,
+        },
+        "storage": {
+            "total_applications": total_apps,
+            "total_audit_events": total_events,
+        },
     }
 
 

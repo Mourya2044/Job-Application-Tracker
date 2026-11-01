@@ -35,7 +35,10 @@ def get_gliner_model():
             from gliner2 import GLiNER2
             # Suppress terminal prints that may contain Unicode chars unhandled by standard Windows cp1252
             with contextlib.redirect_stdout(io.StringIO()):
-                _gliner_model = GLiNER2.from_pretrained(GLINER_MODEL_ID)
+                try:
+                    _gliner_model = GLiNER2.from_pretrained(GLINER_MODEL_ID, local_files_only=True)
+                except Exception:
+                    _gliner_model = GLiNER2.from_pretrained(GLINER_MODEL_ID)
             logger.info("GLiNER2 model loaded successfully (%s).", GLINER_MODEL_ID)
         except Exception as e:
             logger.error("Could not initialize GLiNER2 model: %s", e)
@@ -166,15 +169,19 @@ def extract_email_status_event(subject: str, raw_body: str, sender: str = "") ->
         meeting_link = link_m.group(0) if link_m else None
 
         lower = email_text.lower()
-        if "interview" in lower or "screen" in lower or "chat" in lower or "schedule" in lower:
-            stage = LifecycleStage.SCREENING
+        if "interview" in lower or "screen" in lower or "meet" in lower or "schedule" in lower:
+            stage = LifecycleStage.INTERVIEWING if "interview" in lower else LifecycleStage.SCREENING
             cat = "interview_invite"
+            action_req = True
+        elif "assessment" in lower or "hackerrank" in lower or "codesignal" in lower or "testgorilla" in lower or "codility" in lower:
+            stage = LifecycleStage.SCREENING
+            cat = "assessment_invite"
             action_req = True
         elif "offer" in lower:
             stage = LifecycleStage.OFFER
             cat = "offer_received"
             action_req = True
-        elif "unfortunately" in lower or "not moving forward" in lower or "other candidates" in lower:
+        elif "unfortunately" in lower or "not moving forward" in lower or "other candidates" in lower or "decided not to advance" in lower:
             stage = LifecycleStage.REJECTED
             cat = "rejection"
             action_req = False
@@ -183,7 +190,19 @@ def extract_email_status_event(subject: str, raw_body: str, sender: str = "") ->
             cat = "application_confirmation"
             action_req = False
 
-        company = company_domain.split(".")[0].capitalize() if company_domain else "Company"
+        # Attempt to extract company name from subject or sender
+        company = None
+        subj_match = re.search(r"(?:at|for|with|from)\s+([A-Z][a-zA-Z0-9\s]+?)(?:\s+for|\s+regarding|\s+as|!|\.|$)", subject, re.IGNORECASE)
+        if subj_match:
+            candidate = subj_match.group(1).strip()
+            if candidate.lower() not in {"software", "engineer", "role", "position", "the", "an", "a"}:
+                company = candidate
+
+        if not company:
+            if company_domain and not any(ats in company_domain for ats in ["greenhouse", "lever", "workday", "ashby", "hackerrank"]):
+                company = company_domain.split(".")[0].capitalize()
+            else:
+                company = "Company"
 
         return ParsedEmailEvent(
             is_job_related=True,
@@ -192,7 +211,7 @@ def extract_email_status_event(subject: str, raw_body: str, sender: str = "") ->
             company_domain=company_domain,
             role_title="Software Engineer",
             target_lifecycle_stage=stage,
-            confidence=0.75,
+            confidence=0.85,
             action_required=action_req,
             meeting_link=meeting_link,
             summary_sentence=f"{cat.replace('_', ' ').capitalize()} for role at {company}.",

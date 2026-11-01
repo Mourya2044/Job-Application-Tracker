@@ -7,6 +7,8 @@ from app.db.database import get_db
 from app.db.models import (
     Application,
     ApplicationStatusEvent,
+    CompanyCareerPage,
+    JobPosting,
     LifecycleStage,
     SavedJob,
     TriggerSource,
@@ -15,12 +17,16 @@ from app.db.models import (
 from app.schemas.application import ApplicationRead
 from app.schemas.job import (
     ImportScrapedJobPayload,
+    JobIntelligenceStats,
+    JobPostingRead,
     SavedJobCreate,
     SavedJobRead,
     ScrapedJobPosting,
     UrlScrapeRequest,
 )
 from app.services.job_scraper import JobScraperService
+from app.services.job_deduplicator import JobDeduplicator
+from app.services.job_intelligence import JobIntelligenceService
 
 logger = logging.getLogger(__name__)
 
@@ -28,35 +34,67 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
 @router.get("/popular-companies")
-def get_popular_companies():
-    """Returns a curated list of top tech companies and their ATS providers for quick 1-click exploration."""
+def get_popular_companies(db: Session = Depends(get_db)):
+    """Returns company career pages managed by admin or default curated companies."""
+    try:
+        companies = db.query(CompanyCareerPage).filter(CompanyCareerPage.is_active.is_(True)).all()
+        if companies:
+            return [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "slug": c.slug,
+                    "provider": c.provider,
+                    "domain": c.domain or f"{c.slug}.com",
+                    "color": c.logo_color or "#60a5fa",
+                    "career_url": c.career_url,
+                    "total_jobs_found": c.total_jobs_found,
+                    "last_synced_at": c.last_synced_at.isoformat() if c.last_synced_at else None,
+                }
+                for c in companies
+            ]
+    except Exception as e:
+        logger.warning("Could not load popular companies from DB: %s", e)
+
     return JobScraperService.get_curated_companies()
 
 
 @router.get("/scrape/ats", response_model=List[ScrapedJobPosting])
 async def scrape_ats_jobs(
-    provider: str = Query("greenhouse", description="greenhouse, lever, or ashby"),
+    provider: str = Query("greenhouse", description="greenhouse, lever, ashby, or workable"),
     company: str = Query(..., description="Company slug (e.g. stripe, figma, airbnb, vercel)"),
+    deduplicate: bool = Query(True, description="Remove duplicate postings using Jaccard, Edit Distance, and Vector embeddings"),
 ):
     """
     Direct ATS Public API Scraper:
-    Extracts structured job listings directly from Greenhouse, Lever, or Ashby with 100% data fidelity.
+    Extracts structured job listings directly from Greenhouse, Lever, Ashby, or Workable with 100% data fidelity.
     """
     provider_clean = provider.strip().lower()
     company_clean = company.strip().lower()
 
     try:
         if provider_clean == "greenhouse":
-            return await JobScraperService.scrape_greenhouse(company_clean)
+            jobs = await JobScraperService.scrape_greenhouse(company_clean)
         elif provider_clean == "lever":
-            return await JobScraperService.scrape_lever(company_clean)
+            jobs = await JobScraperService.scrape_lever(company_clean)
         elif provider_clean == "ashby":
-            return await JobScraperService.scrape_ashby(company_clean)
+            jobs = await JobScraperService.scrape_ashby(company_clean)
+        elif provider_clean == "workable":
+            jobs = await JobScraperService.scrape_workable(company_clean)
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported ATS provider '{provider}'. Supported providers: greenhouse, lever, ashby",
+                detail=f"Unsupported ATS provider '{provider}'. Supported providers: greenhouse, lever, ashby, workable",
             )
+
+        if deduplicate and len(jobs) > 1:
+            raw_dicts = [j.model_dump() if hasattr(j, "model_dump") else j.dict() for j in jobs]
+            deduped_dicts, report = JobDeduplicator.deduplicate_job_list(raw_dicts, enable_vectors=True)
+            if report.get("duplicates_removed", 0) > 0:
+                logger.info("ATS Deduplication for %s removed %d duplicates", company_clean, report["duplicates_removed"])
+            return [ScrapedJobPosting(**d) for d in deduped_dicts]
+
+        return jobs
     except HTTPException as httpx_err:
         raise httpx_err
     except Exception as e:
@@ -87,19 +125,47 @@ async def scrape_job_url(payload: UrlScrapeRequest):
 async def search_live_jobs(
     query: str = Query("software", description="Job title, skill, or keyword"),
     limit: int = Query(15, ge=1, le=50),
+    deduplicate: bool = Query(True, description="Remove duplicate postings using Jaccard, Edit Distance, and Vector embeddings"),
 ):
     """
-    Tech Job Aggregator Feed:
-    Searches live tech job postings from remote tech feeds.
+    Multi-Source Tech Job Aggregator Feed:
+    Concurrently queries multiple live job APIs (RemoteOK, Remotive, Arbeitnow) and deduplicates results.
     """
     try:
-        return await JobScraperService.search_remoteok(query=query, limit=limit)
+        jobs = await JobScraperService.search_multi_source(query=query, limit=limit)
+        if deduplicate and len(jobs) > 1:
+            raw_dicts = [j.model_dump() if hasattr(j, "model_dump") else j.dict() for j in jobs]
+            deduped_dicts, report = JobDeduplicator.deduplicate_job_list(raw_dicts, enable_vectors=True)
+            if report.get("duplicates_removed", 0) > 0:
+                logger.info("Search deduplication for %s removed %d duplicates", query, report["duplicates_removed"])
+            return [ScrapedJobPosting(**d) for d in deduped_dicts[:limit]]
+        return jobs[:limit]
     except Exception as e:
         logger.error("Error searching live jobs for query %s: %s", query, e)
         raise HTTPException(
             status_code=500,
             detail=f"Search failed: {str(e)}",
         )
+
+
+@router.post("/deduplicate")
+def deduplicate_jobs(
+    jobs: List[ScrapedJobPosting],
+    enable_vectors: bool = Query(True, description="Enable dense neural vector embedding cosine evaluation"),
+):
+    """
+    Deduplicates a batch of job postings using 3 algorithmic techniques:
+    1. Jaccard Token & Shingle Similarity (Intersection over Union)
+    2. Levenshtein / Token Sort Edit Distance Ratio
+    3. Dense Neural Vector Embedding Cosine Similarity
+    """
+    raw_dicts = [j.model_dump() if hasattr(j, "model_dump") else j.dict() for j in jobs]
+    deduped_dicts, report = JobDeduplicator.deduplicate_job_list(raw_dicts, enable_vectors=enable_vectors)
+    return {
+        "report": report,
+        "unique_jobs": [ScrapedJobPosting(**d) for d in deduped_dicts],
+    }
+
 
 
 @router.post("/import", response_model=ApplicationRead)
@@ -134,6 +200,14 @@ def import_scraped_job_to_board(
             detail=f"Application for '{job.title}' at {job.company_name} is already being tracked.",
         )
 
+    # Match corresponding market JobPosting if already discovered
+    posting_id = None
+    if job.url:
+        clean_url = job.url.split("?")[0].rstrip("/")
+        posting_match = db.query(JobPosting).filter(JobPosting.job_url.like(f"{clean_url}%")).first()
+        if posting_match:
+            posting_id = posting_match.id
+
     # Create new Application
     app = Application(
         company_name=job.company_name,
@@ -143,6 +217,7 @@ def import_scraped_job_to_board(
         location=job.location,
         salary_range=job.salary_range,
         current_stage=target_stage,
+        job_posting_id=posting_id,
         last_status_change_at=utc_now(),
         last_status_change_source=TriggerSource.INITIAL_INGEST.value,
         manual_notes=payload.notes or f"Imported via job scraper ({job.source_type}).",
@@ -208,5 +283,30 @@ def delete_saved_job(job_id: str, db: Session = Depends(get_db)):
     if saved:
         db.delete(saved)
         db.commit()
+
+
+@router.get("/intelligence", response_model=JobIntelligenceStats)
+def get_job_intelligence_dashboard(db: Session = Depends(get_db)):
+    """Global job intelligence metrics: market trends, expired positions, reposts, and salary disclosures."""
+    return JobIntelligenceService.get_intelligence_stats(db)
+
+
+@router.get("/market", response_model=List[JobPostingRead])
+def list_market_job_postings(
+    is_expired: Optional[bool] = Query(None, description="Filter by expired positions"),
+    repost_only: Optional[bool] = Query(None, description="Filter by detected repostings"),
+    company: Optional[str] = Query(None, description="Filter by company name"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Retrieves discovered market job postings with historical expiration and reposting flags."""
+    query = db.query(JobPosting)
+    if isinstance(is_expired, bool):
+        query = query.filter(JobPosting.is_expired.is_(is_expired))
+    if isinstance(repost_only, bool) and repost_only:
+        query = query.filter(JobPosting.repost_detected.is_(True))
+    if isinstance(company, str) and company.strip():
+        query = query.filter(JobPosting.company_name.ilike(f"%{company.strip()}%"))
+    return query.order_by(JobPosting.last_seen_at.desc()).limit(limit).all()
     return None
 

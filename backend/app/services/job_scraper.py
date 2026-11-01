@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -8,6 +9,7 @@ from bs4 import BeautifulSoup
 import httpx
 
 from app.schemas.job import ScrapedJobPosting
+from app.services.security import validate_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +236,53 @@ class JobScraperService:
             )
         return jobs
 
+    @staticmethod
+    async def scrape_workable(company_slug: str) -> List[ScrapedJobPosting]:
+        """
+        Scrapes Workable via its public widget JSON API:
+        https://apply.workable.com/api/v1/widget/accounts/{company}
+        """
+        slug = company_slug.strip().lower()
+        url = f"https://apply.workable.com/api/v1/widget/accounts/{slug}"
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 404:
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+
+        jobs: List[ScrapedJobPosting] = []
+        company_name = data.get("name") or slug.capitalize()
+        for item in data.get("jobs", []):
+            shortcode = str(item.get("shortcode") or item.get("id") or "")
+            title = item.get("title", "Untitled Role")
+            job_url = item.get("url") or f"https://apply.workable.com/{slug}/j/{shortcode}/"
+            city = item.get("city") or ""
+            country = item.get("country") or ""
+            loc_parts = [p for p in [city, country] if p]
+            location = ", ".join(loc_parts) if loc_parts else "Remote"
+            is_remote = bool(item.get("telecommuting")) or "remote" in location.lower()
+            dept_name = item.get("department")
+
+            jobs.append(
+                ScrapedJobPosting(
+                    id=f"wk-{slug}-{shortcode}",
+                    title=title,
+                    company_name=company_name,
+                    company_domain=f"{slug}.com",
+                    location=location,
+                    remote_type="remote" if is_remote else "hybrid/onsite",
+                    department=dept_name,
+                    url=job_url,
+                    description_snippet=f"{title} at {company_name} ({location})",
+                    source_type="ats_workable",
+                    posted_at=datetime.now(timezone.utc),
+                )
+            )
+        return jobs
+
     # -------------------------------------------------------------------------
     # Technique 2 & 3: Schema.org JSON-LD and Heuristic DOM URL Scraper
     # -------------------------------------------------------------------------
@@ -241,10 +290,12 @@ class JobScraperService:
     async def scrape_url(target_url: str) -> ScrapedJobPosting:
         """
         Universal URL Inspector:
-        1. Checks for direct ATS URL patterns (Greenhouse/Lever/Ashby) and routes to direct API.
-        2. Otherwise fetches HTML and extracts Schema.org JSON-LD (@type: JobPosting).
-        3. Fallback: Semantic DOM & OpenGraph metadata parsing.
+        1. Validates safe external target URL against SSRF / internal IP exploits.
+        2. Checks for direct ATS URL patterns (Greenhouse/Lever/Ashby) and routes to direct API.
+        3. Otherwise fetches HTML and extracts Schema.org JSON-LD (@type: JobPosting).
+        4. Fallback: Semantic DOM & OpenGraph metadata parsing.
         """
+        target_url = validate_safe_url(target_url)
         parsed = urllib.parse.urlparse(target_url)
         netloc = parsed.netloc.lower()
         path = parsed.path.strip("/")
@@ -457,3 +508,132 @@ class JobScraperService:
                 break
 
         return jobs
+
+    @staticmethod
+    async def search_remotive(query: str = "software", limit: int = 10) -> List[ScrapedJobPosting]:
+        """
+        Fetches live remote tech jobs from Remotive public JSON API:
+        https://remotive.com/api/remote-jobs?search={query}
+        """
+        q_encoded = urllib.parse.quote(query.strip())
+        url = f"https://remotive.com/api/remote-jobs?search={q_encoded}&limit={limit}"
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+
+        jobs: List[ScrapedJobPosting] = []
+        for item in data.get("jobs", []):
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+
+            job_id = str(item.get("id"))
+            title = item.get("title", "Software Engineer")
+            company = item.get("company_name", "Tech Company")
+            apply_url = item.get("url", f"https://remotive.com/remote-jobs/{job_id}")
+            location = item.get("candidate_required_location") or "Remote"
+            salary = item.get("salary") or None
+            snippet = clean_html_snippet(item.get("description", ""))
+            dept = item.get("category") or "Engineering"
+
+            jobs.append(
+                ScrapedJobPosting(
+                    id=f"rem-{job_id}",
+                    title=title,
+                    company_name=company,
+                    company_domain=f"{company.lower().replace(' ', '')}.com",
+                    location=location,
+                    remote_type="remote",
+                    department=dept,
+                    url=apply_url,
+                    salary_range=salary,
+                    description_snippet=snippet,
+                    source_type="remotive",
+                    posted_at=datetime.now(timezone.utc),
+                )
+            )
+            if len(jobs) >= limit:
+                break
+
+        return jobs
+
+    @staticmethod
+    async def search_arbeitnow(query: str = "software", limit: int = 10) -> List[ScrapedJobPosting]:
+        """
+        Fetches live tech jobs from Arbeitnow public JSON API:
+        https://www.arbeitnow.com/api/job-board-api
+        """
+        url = "https://www.arbeitnow.com/api/job-board-api"
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+
+        q_lower = query.strip().lower()
+        jobs: List[ScrapedJobPosting] = []
+        for item in data.get("data", []):
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+
+            title = item.get("title", "Software Engineer")
+            company = item.get("company_name", "Tech Company")
+            tags = item.get("tags", [])
+            searchable = f"{title} {company} {' '.join(tags)}".lower()
+            if q_lower and q_lower not in searchable:
+                continue
+
+            slug = str(item.get("slug") or abs(hash(title + company)))
+            apply_url = item.get("url", f"https://www.arbeitnow.com/jobs/{slug}")
+            location = item.get("location") or "Remote"
+            is_remote = bool(item.get("remote")) or "remote" in location.lower()
+            snippet = clean_html_snippet(item.get("description", ""))
+            dept = tags[0] if tags else "Engineering"
+
+            jobs.append(
+                ScrapedJobPosting(
+                    id=f"arb-{slug[:32]}",
+                    title=title,
+                    company_name=company,
+                    company_domain=f"{company.lower().replace(' ', '')}.com",
+                    location=location,
+                    remote_type="remote" if is_remote else "hybrid/onsite",
+                    department=dept,
+                    url=apply_url,
+                    description_snippet=snippet,
+                    source_type="arbeitnow",
+                    posted_at=datetime.now(timezone.utc),
+                )
+            )
+            if len(jobs) >= limit:
+                break
+
+        return jobs
+
+    @classmethod
+    async def search_multi_source(cls, query: str = "software", limit: int = 15) -> List[ScrapedJobPosting]:
+        """
+        Concurrently queries multiple public job search APIs (RemoteOK, Remotive, Arbeitnow)
+        and aggregates the combined results for downstream deduplication.
+        """
+        per_source = max(5, limit)
+        results = await asyncio.gather(
+            cls.search_remoteok(query=query, limit=per_source),
+            cls.search_remotive(query=query, limit=per_source),
+            cls.search_arbeitnow(query=query, limit=per_source),
+            return_exceptions=True,
+        )
+
+        combined: List[ScrapedJobPosting] = []
+        for res in results:
+            if isinstance(res, list):
+                combined.extend(res)
+            elif isinstance(res, Exception):
+                logger.debug("Multi-source API branch warning: %s", res)
+
+        return combined

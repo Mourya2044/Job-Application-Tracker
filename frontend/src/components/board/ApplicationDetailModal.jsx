@@ -483,9 +483,47 @@ export function ApplicationDetailModal({
                           </div>
                         </div>
 
-                        <div className="text-xs text-[#8a94a8] italic mt-0.5">
-                          {evt.change_summary || evt.user_note || "Status updated"}
-                        </div>
+                        {(() => {
+                          let decision = null
+                          if (evt.decision_metadata) {
+                            try {
+                              decision = typeof evt.decision_metadata === "string" ? JSON.parse(evt.decision_metadata) : evt.decision_metadata
+                            } catch (e) {
+                              // ignore
+                            }
+                          }
+                          return (
+                            <>
+                              <div className="text-xs text-[#8a94a8] italic mt-0.5">
+                                {evt.change_summary || evt.user_note || "Status updated"}
+                              </div>
+                              {(decision || evt.model_version) && (
+                                <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pt-1">
+                                  {decision?.strategy && (
+                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(96,165,250,0.1)] text-[#60a5fa] border border-[rgba(96,165,250,0.2)]">
+                                      {decision.strategy}
+                                    </span>
+                                  )}
+                                  {decision?.score !== undefined && (
+                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(74,222,128,0.1)] text-[#4ade80] border border-[rgba(74,222,128,0.2)]">
+                                      Match: {typeof decision.score === "number" ? `${Math.round(decision.score)}%` : decision.score}
+                                    </span>
+                                  )}
+                                  {decision?.matched_by && (
+                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[rgba(212,168,53,0.1)] text-[#d4a853] border border-[rgba(212,168,53,0.2)]">
+                                      {decision.matched_by}
+                                    </span>
+                                  )}
+                                  {evt.model_version && (
+                                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[#1e293b] text-[#94a3b8]">
+                                      {evt.model_version}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )
+                        })()}
                       </div>
                     ))}
                   </div>

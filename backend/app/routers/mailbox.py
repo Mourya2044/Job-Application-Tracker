@@ -34,7 +34,7 @@ from app.services.mailbox_sync import (
     sync_mailbox_events,
     sync_mailbox_history_events,
 )
-from app.services.resolver import resolve_application_match
+from app.services.resolver import resolve_application_match, resolve_application_match_with_details
 from app.services.status_extractor import extract_email_status_event
 
 logger = logging.getLogger(__name__)
@@ -362,8 +362,10 @@ def simulate_incoming_email(payload: SimulateEmailPayload, db: Session = Depends
             "event": event.model_dump(),
         }
 
-    # Resolve match
-    matched_app = resolve_application_match(db, event, sender=payload.sender, subject=payload.subject)
+    # Resolve match with explainable details
+    matched_app, match_details = resolve_application_match_with_details(
+        db, event, sender=payload.sender, subject=payload.subject
+    )
     match_status = "unmatched"
     matched_app_id = None
     applied_change = None
@@ -379,6 +381,8 @@ def simulate_incoming_email(payload: SimulateEmailPayload, db: Session = Depends
             email_message_id=msg_id,
             email_subject=payload.subject,
             email_snippet=payload.body[:200],
+            decision_details=match_details,
+            model_version="email_simulator",
         )
 
         match_status = "matched_auto" if not matched_app.stage_locked else "suggested"
