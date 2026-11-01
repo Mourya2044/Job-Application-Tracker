@@ -34,18 +34,23 @@ export const ApplicationModal: React.FC<ApplicationModalProps> = ({
     setSubmitting(true);
 
     try {
+      const salaryRange =
+        salaryMin !== "" && salaryMax !== ""
+          ? `$${salaryMin} - $${salaryMax}`
+          : salaryMin !== ""
+          ? `$${salaryMin}+`
+          : null;
+
       await apiFetch("/api/applications", {
         method: "POST",
         body: JSON.stringify({
-          companyName,
-          roleTitle,
-          currentStage,
-          jobUrl: jobUrl || null,
+          company_name: companyName,
+          role_title: roleTitle,
+          current_stage: currentStage,
+          job_url: jobUrl || null,
           location: location || null,
-          salaryMin: salaryMin !== "" ? Number(salaryMin) : null,
-          salaryMax: salaryMax !== "" ? Number(salaryMax) : null,
-          stageLocked,
-          notes: notes || null,
+          salary_range: salaryRange,
+          manual_notes: notes || null,
           tags: [],
         }),
       });

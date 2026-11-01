@@ -34,8 +34,29 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<KanbanApplication[]>("/api/applications");
-      setApplications(data || []);
+      const data = await apiFetch<any>("/api/applications");
+      if (Array.isArray(data)) {
+        setApplications(data);
+      } else if (data && Array.isArray(data.columns)) {
+        const flattened = data.columns.flatMap((col: any) =>
+          (col.applications || []).map((app: any) => ({
+            id: app.id,
+            companyName: app.company_name || app.companyName,
+            roleTitle: app.role_title || app.roleTitle,
+            currentStage: app.current_stage || app.currentStage,
+            stageLocked: app.stage_locked ?? app.stageLocked ?? false,
+            location: app.location,
+            salaryMin: app.salary_min ?? app.salaryMin ?? null,
+            salaryMax: app.salary_max ?? app.salaryMax ?? null,
+            currency: app.currency ?? "USD",
+            jobUrl: app.job_url || app.jobUrl || null,
+            updatedAt: app.updated_at || app.updatedAt || new Date().toISOString(),
+          }))
+        );
+        setApplications(flattened);
+      } else {
+        setApplications([]);
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to load tracked applications");
     } finally {
@@ -47,7 +68,7 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
     try {
       await apiFetch(`/api/applications/${id}/stage`, {
         method: "PATCH",
-        body: JSON.stringify({ stage: newStage, source: "user_manual" }),
+        body: JSON.stringify({ to_stage: newStage }),
       });
       await loadApplications();
     } catch (err: any) {

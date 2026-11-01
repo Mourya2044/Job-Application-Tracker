@@ -44,8 +44,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const loadDashboardData = async () => {
     try {
-      const data = await apiFetch<Application[]>("/api/applications");
-      setApplications(data || []);
+      const data = await apiFetch<any>("/api/applications");
+      if (Array.isArray(data)) {
+        setApplications(data);
+      } else if (data && Array.isArray(data.columns)) {
+        const flattened = data.columns.flatMap((col: any) =>
+          (col.applications || []).map((app: any) => ({
+            id: app.id,
+            companyName: app.company_name || app.companyName,
+            roleTitle: app.role_title || app.roleTitle,
+            currentStage: app.current_stage || app.currentStage,
+            stageLocked: app.stage_locked ?? app.stageLocked ?? false,
+            location: app.location,
+            salaryMin: app.salary_min ?? app.salaryMin ?? null,
+            salaryMax: app.salary_max ?? app.salaryMax ?? null,
+            currency: app.currency ?? "USD",
+            updatedAt: app.updated_at || app.updatedAt || new Date().toISOString(),
+          }))
+        );
+        setApplications(flattened);
+      } else {
+        setApplications([]);
+      }
     } catch {
       setApplications([]);
     } finally {

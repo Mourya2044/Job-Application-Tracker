@@ -69,8 +69,31 @@ export const ApplicationDetailDrawer: React.FC<ApplicationDetailDrawerProps> = (
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<ApplicationDetail>(`/api/applications/${id}`);
-      setApp(data);
+      const data = await apiFetch<any>(`/api/applications/${id}`);
+      if (data) {
+        setApp({
+          id: data.id,
+          companyName: data.company_name || data.companyName,
+          roleTitle: data.role_title || data.roleTitle,
+          currentStage: data.current_stage || data.currentStage,
+          stageLocked: data.stage_locked ?? data.stageLocked ?? false,
+          jobUrl: data.job_url || data.jobUrl || null,
+          location: data.location,
+          salaryMin: data.salary_min ?? data.salaryMin ?? null,
+          salaryMax: data.salary_max ?? data.salaryMax ?? null,
+          currency: data.currency ?? "USD",
+          notes: data.manual_notes || data.notes || null,
+          auditEvents: (data.status_events || data.auditEvents || []).map((e: any) => ({
+            id: e.id,
+            eventType: e.event_type || e.eventType || "stage_transition",
+            fromStage: e.from_stage ?? e.fromStage ?? null,
+            toStage: e.to_stage ?? e.toStage ?? null,
+            source: e.trigger_source || e.source || "unknown",
+            notes: e.user_note || e.change_summary || e.notes || null,
+            createdAt: e.changed_at || e.created_at || e.createdAt || new Date().toISOString(),
+          })),
+        });
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to load application details");
     } finally {
@@ -85,7 +108,7 @@ export const ApplicationDetailDrawer: React.FC<ApplicationDetailDrawerProps> = (
     try {
       await apiFetch(`/api/applications/${app.id}/stage`, {
         method: "PATCH",
-        body: JSON.stringify({ stage: newStage, source: "user_manual" }),
+        body: JSON.stringify({ to_stage: newStage }),
       });
       await loadDetails(app.id);
       onUpdated();
