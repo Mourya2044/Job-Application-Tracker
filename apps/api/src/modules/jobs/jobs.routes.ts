@@ -81,15 +81,17 @@ export const jobRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     "/live-search",
     {
       schema: {
-        description: "Perform real-time multi-source job search with deduplication across RemoteOK, Remotive, and Arbeitnow",
+        description: "Perform real-time multi-source job search with deduplication across RemoteOK, Remotive, Arbeitnow, and ATS boards",
         tags: ["jobs"],
         summary: "Live aggregator search",
       },
     },
     async (request, reply) => {
-      const q = (request.query as any)?.query || "software";
-      const limit = Number((request.query as any)?.limit || 20);
-      const jobs = await JobsService.searchLiveAggregators(q, limit);
+      const rawQuery = request.query as any;
+      const q = rawQuery?.query || rawQuery?.q || "software";
+      const limit = Number(rawQuery?.limit || 24);
+      const source = rawQuery?.source;
+      const jobs = await JobsService.searchLiveAggregators(q, { limit, source });
       return reply.send({ total: jobs.length, items: jobs });
     }
   );
@@ -144,6 +146,23 @@ export const jobRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
       const parsed = CompanyCareerPageCreateSchema.parse(request.body);
       const created = await JobsService.createCareerPage(parsed);
       return reply.status(201).send(created);
+    }
+  );
+
+  fastify.post(
+    "/career-pages/seed-presets",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Seed curated tech companies (Stripe, Figma, Linear, OpenAI, etc.) into tracked career pages",
+        tags: ["jobs"],
+        summary: "Seed curated presets",
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (_request, reply) => {
+      const result = await JobsService.seedPresets();
+      return reply.send(result);
     }
   );
 

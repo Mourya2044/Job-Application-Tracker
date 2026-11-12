@@ -3,7 +3,8 @@ param (
     [ValidateSet("all", "api", "web")]
     [string]$Target = "all",
     [string]$Stage = "production",
-    [string]$Region = "ap-south-1"
+    [string]$Region = "ap-south-1",
+    [switch]$FullStack
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,14 +52,19 @@ if ($Target -eq "all" -or $Target -eq "api") {
     npm run build:shared
     npm run build:api
 
-    if ($Target -eq "api") {
-        # 5-second fast code-only Lambda update (bypasses CloudFormation stack overhead)
-        npx --yes serverless@3 deploy function --function api --stage $Stage --region $Region
-        Write-Host "✅ API Lambda function updated in ~5s." -ForegroundColor Green
-    } else {
-        # Full stack deployment
+    if ($FullStack) {
+        Write-Host "Running full CloudFormation deployment..." -ForegroundColor Yellow
         npx --yes serverless@3 deploy --stage $Stage --region $Region
         Write-Host "✅ Full Serverless Stack deployed." -ForegroundColor Green
+    } else {
+        # Instant direct code deployment: skips CloudFormation hanging
+        if (-not (Test-Path ".serverless")) {
+            New-Item -ItemType Directory -Path ".serverless" -Force | Out-Null
+        }
+        tar -acf ".serverless/api.zip" "apps/api/dist/lambda.mjs"
+        aws lambda update-function-code --function-name "track-platform-$Stage-api" --zip-file "fileb://.serverless/api.zip" --region $Region | Out-Null
+        aws lambda update-function-code --function-name "track-platform-$Stage-queueWorker" --zip-file "fileb://.serverless/api.zip" --region $Region | Out-Null
+        Write-Host "✅ API and Worker Lambda functions updated instantly (~2s)." -ForegroundColor Green
     }
 }
 

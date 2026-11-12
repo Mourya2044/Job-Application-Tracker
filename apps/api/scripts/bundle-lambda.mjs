@@ -17,7 +17,7 @@ await esbuild.build({
   entryPoints: [srcLambda],
   bundle: true,
   platform: "node",
-  target: "node20",
+  target: "node26",
   format: "esm",
   outfile: outLambda,
   external: ["pg-native"],

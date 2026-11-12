@@ -16,6 +16,9 @@ import {
   AlertCircle,
   Clock,
   Trash2,
+  RefreshCw,
+  Database,
+  Sliders,
 } from "lucide-react";
 
 interface DiscoveredJob {
@@ -28,6 +31,7 @@ interface DiscoveredJob {
   remoteClassification?: string | null;
   salaryMin?: number | null;
   salaryMax?: number | null;
+  salaryRange?: string | null;
   currency?: string | null;
   skills?: string[] | null;
   publishedAt?: string | null;
@@ -52,10 +56,38 @@ interface SavedJob {
   };
 }
 
+interface CareerPage {
+  id: string;
+  name: string;
+  slug: string;
+  provider: string;
+  domain?: string | null;
+  careerUrl?: string | null;
+  isActive: boolean;
+  syncFrequencyHours: number;
+  lastSyncedAt?: string | null;
+  lastSyncStatus: string;
+  lastErrorMessage?: string | null;
+  totalJobsFound: number;
+}
+
 export const JobDiscoveryView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"search" | "extract" | "saved">("search");
+  const [activeTab, setActiveTab] = useState<"search" | "extract" | "saved" | "admin">("search");
   const [jobs, setJobs] = useState<DiscoveredJob[]>([]);
   const [savedJobs, setSavedJobs] = useState<SavedJob[]>([]);
+  const [careerPages, setCareerPages] = useState<CareerPage[]>([]);
+  const [loadingCareerPages, setLoadingCareerPages] = useState(false);
+  const [syncingPageId, setSyncingPageId] = useState<string | null>(null);
+  const [seedingPresets, setSeedingPresets] = useState(false);
+
+  // New Board Form
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newBoardName, setNewBoardName] = useState("");
+  const [newBoardSlug, setNewBoardSlug] = useState("");
+  const [newBoardProvider, setNewBoardProvider] = useState("greenhouse");
+  const [newBoardDomain, setNewBoardDomain] = useState("");
+  const [savingBoard, setSavingBoard] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSource, setSelectedSource] = useState<string>("all");
@@ -78,20 +110,109 @@ export const JobDiscoveryView: React.FC = () => {
   const curatedCompanies = ["Stripe", "Figma", "Datadog", "Linear", "Vercel", "OpenAI", "Airbnb"];
 
   useEffect(() => {
+    fetchCareerPages();
+  }, []);
+
+  useEffect(() => {
     if (activeTab === "search") {
       fetchJobs();
     } else if (activeTab === "saved") {
       fetchSavedJobs();
+    } else if (activeTab === "admin") {
+      fetchCareerPages();
     }
   }, [activeTab, selectedSource]);
 
-  const fetchJobs = async () => {
+  const fetchCareerPages = async () => {
+    setLoadingCareerPages(true);
+    try {
+      const data = await apiFetch<CareerPage[]>("/api/jobs/career-pages");
+      setCareerPages(Array.isArray(data) ? data : []);
+    } catch {
+      // Non-blocking fallback
+    } finally {
+      setLoadingCareerPages(false);
+    }
+  };
+
+  const handleSyncCareerPage = async (page: CareerPage) => {
+    setSyncingPageId(page.id);
+    setError(null);
+    try {
+      const res = await apiFetch<any>(`/api/jobs/career-pages/${page.id}/sync`, {
+        method: "POST",
+      });
+      setSuccessMsg(
+        `Synchronized ${page.name}! Discovered ${res?.totalScraped || 0} roles (${res?.createdCount || 0} new, ${res?.observationsCount || 0} market observations recorded).`
+      );
+      setTimeout(() => setSuccessMsg(null), 5000);
+      await fetchCareerPages();
+    } catch (err: any) {
+      setError(err?.message || `Failed to sync ${page.name}. Ensure you are signed in.`);
+    } finally {
+      setSyncingPageId(null);
+    }
+  };
+
+  const handleSeedPresets = async () => {
+    setSeedingPresets(true);
+    setError(null);
+    try {
+      const res = await apiFetch<any>("/api/jobs/career-pages/seed-presets", {
+        method: "POST",
+      });
+      setSuccessMsg(`Registered ${res.added} preset companies into continuous discovery!`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+      await fetchCareerPages();
+    } catch (err: any) {
+      setError(err?.message || "Failed to seed preset companies. Ensure you are signed in.");
+    } finally {
+      setSeedingPresets(false);
+    }
+  };
+
+  const handleCreateCareerPage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBoardName.trim() || !newBoardSlug.trim()) return;
+    setSavingBoard(true);
+    setError(null);
+    try {
+      await apiFetch("/api/jobs/career-pages", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newBoardName.trim(),
+          slug: newBoardSlug.trim().toLowerCase(),
+          provider: newBoardProvider,
+          domain: newBoardDomain.trim() || null,
+          career_url: newBoardDomain.trim() ? `https://${newBoardDomain.trim()}/careers` : null,
+          is_active: true,
+          sync_frequency_hours: 24,
+        }),
+      });
+      setSuccessMsg(`Registered ${newBoardName} for automated discovery!`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+      setShowAddModal(false);
+      setNewBoardName("");
+      setNewBoardSlug("");
+      setNewBoardDomain("");
+      await fetchCareerPages();
+    } catch (err: any) {
+      setError(err?.message || "Failed to register career page. Make sure you are signed in.");
+    } finally {
+      setSavingBoard(false);
+    }
+  };
+
+  const fetchJobs = async (queryToUse?: string, sourceToUse?: string) => {
+    const qStr = queryToUse !== undefined ? queryToUse : searchQuery;
+    const sStr = sourceToUse !== undefined ? sourceToUse : selectedSource;
+
     setLoading(true);
     setError(null);
     try {
-      const q = searchQuery ? `&query=${encodeURIComponent(searchQuery)}` : "";
-      const s = selectedSource !== "all" ? `&source=${selectedSource}` : "";
-      const data = await apiFetch<any>(`/api/jobs/search?limit=24${q}${s}`);
+      const q = qStr ? `&query=${encodeURIComponent(qStr)}` : "";
+      const s = sStr !== "all" ? `&source=${encodeURIComponent(sStr)}` : "";
+      const data = await apiFetch<any>(`/api/jobs/live-search?limit=24${q}${s}`);
       const list = Array.isArray(data)
         ? data
         : data && Array.isArray(data.items)
@@ -108,6 +229,7 @@ export const JobDiscoveryView: React.FC = () => {
         remoteClassification: j.remote_type || j.remoteClassification || "Remote",
         salaryMin: j.salary_min ?? j.salaryMin ?? null,
         salaryMax: j.salary_max ?? j.salaryMax ?? null,
+        salaryRange: j.salary_range ?? j.salaryRange ?? null,
         currency: j.currency || "USD",
         skills: j.skills || [],
         publishedAt: j.first_seen_at || j.publishedAt || j.posted_at || null,
@@ -116,7 +238,7 @@ export const JobDiscoveryView: React.FC = () => {
 
       setJobs(parsed);
     } catch (err: any) {
-      setError(err?.message || "Failed to search jobs");
+      setError(err?.message || "Failed to search jobs from public APIs");
     } finally {
       setLoading(false);
     }
@@ -137,11 +259,12 @@ export const JobDiscoveryView: React.FC = () => {
   const handleSaveJob = async (job: DiscoveredJob) => {
     try {
       const salaryRange =
-        job.salaryMin && job.salaryMax
-          ? `$${job.salaryMin} - $${job.salaryMax}`
+        job.salaryRange ||
+        (job.salaryMin && job.salaryMax
+          ? `$${job.salaryMin.toLocaleString()} - $${job.salaryMax.toLocaleString()}`
           : job.salaryMin
-          ? `$${job.salaryMin}+`
-          : null;
+          ? `$${job.salaryMin.toLocaleString()}+`
+          : null);
 
       await apiFetch("/api/jobs/saved", {
         method: "POST",
@@ -169,15 +292,17 @@ export const JobDiscoveryView: React.FC = () => {
     location?: string | null;
     salaryMin?: number | null;
     salaryMax?: number | null;
+    salaryRange?: string | null;
     currency?: string | null;
   }) => {
     try {
       const salaryRange =
-        job.salaryMin && job.salaryMax
-          ? `$${job.salaryMin} - $${job.salaryMax}`
+        job.salaryRange ||
+        (job.salaryMin && job.salaryMax
+          ? `$${job.salaryMin.toLocaleString()} - $${job.salaryMax.toLocaleString()}`
           : job.salaryMin
-          ? `$${job.salaryMin}+`
-          : null;
+          ? `$${job.salaryMin.toLocaleString()}+`
+          : null);
 
       await apiFetch("/api/applications", {
         method: "POST",
@@ -188,13 +313,13 @@ export const JobDiscoveryView: React.FC = () => {
           location: job.location || null,
           salary_range: salaryRange,
           current_stage: "applied",
-          tags: [],
+          tags: ["public-api-import"],
         }),
       });
-      setSuccessMsg(`Added "${job.title}" to your Tracked Applications!`);
+      setSuccessMsg(`Added "${job.title}" at ${job.companyName} to your Tracked Applications!`);
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
-      setError(err?.message || "Failed to import job to applications");
+      setError(err?.message || "Failed to import job to applications. Ensure you are signed in.");
     }
   };
 
@@ -288,6 +413,17 @@ export const JobDiscoveryView: React.FC = () => {
           >
             Saved Roles ({savedJobs.length})
           </button>
+          <button
+            onClick={() => setActiveTab("admin")}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors flex items-center gap-1.5 ${
+              activeTab === "admin"
+                ? "bg-[#1a2235] text-[#d4a853] shadow-sm"
+                : "text-[#8f9cb5] hover:text-[#f1ede6]"
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Tracked ATS Boards ({careerPages.length})</span>
+          </button>
         </div>
       </div>
 
@@ -341,7 +477,10 @@ export const JobDiscoveryView: React.FC = () => {
               {sources.map((src) => (
                 <button
                   key={src.id}
-                  onClick={() => setSelectedSource(src.id)}
+                  onClick={() => {
+                    setSelectedSource(src.id);
+                    fetchJobs(searchQuery, src.id);
+                  }}
                   className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
                     selectedSource === src.id
                       ? "bg-[#d4a853]/15 border-[#d4a853] text-[#d4a853] font-medium"
@@ -361,7 +500,7 @@ export const JobDiscoveryView: React.FC = () => {
                   key={comp}
                   onClick={() => {
                     setSearchQuery(comp);
-                    fetchJobs();
+                    fetchJobs(comp, selectedSource);
                   }}
                   className="text-xs px-2 py-0.5 rounded bg-[#0c1019] border border-[#253048] text-[#8f9cb5] hover:text-[#d4a853] hover:border-[#d4a853]/40 transition-colors"
                 >
@@ -414,10 +553,14 @@ export const JobDiscoveryView: React.FC = () => {
                           {job.remoteClassification}
                         </span>
                       )}
-                      {(job.salaryMin || job.salaryMax) && (
+                      {(job.salaryMin || job.salaryMax || job.salaryRange) && (
                         <span className="flex items-center gap-1 bg-[#1a2235] px-2 py-0.5 rounded border border-[#253048] text-[#34d399] font-mono">
                           <DollarSign className="w-2.5 h-2.5" />
-                          {job.salaryMin?.toLocaleString("en-US")} - {job.salaryMax?.toLocaleString("en-US")}
+                          {job.salaryRange
+                            ? job.salaryRange
+                            : job.salaryMin && job.salaryMax
+                            ? `${job.salaryMin.toLocaleString("en-US")} - ${job.salaryMax.toLocaleString("en-US")}`
+                            : `${job.salaryMin?.toLocaleString("en-US")}+`}
                         </span>
                       )}
                     </div>
@@ -632,6 +775,270 @@ export const JobDiscoveryView: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 4: Tracked Career Pages & Discovery Admin */}
+      {activeTab === "admin" && (
+        <div className="space-y-6">
+          {/* Header Actions */}
+          <div className="surface-card border-[#253048] p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-base font-bold text-[#f1ede6] flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-[#d4a853]" />
+                Tracked ATS Career Pages & Continuous Discovery
+              </h2>
+              <p className="text-xs text-[#8f9cb5] mt-1 max-w-2xl">
+                Configure direct ATS integrations (Greenhouse, Lever, Ashby, Workable) for automated discovery. Track scrapes open jobs, performs deduplication, and records market observations into your database.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleSeedPresets}
+                disabled={seedingPresets}
+                className="px-3.5 py-2 rounded-md bg-[#1a2235] text-[#d4a853] text-xs font-medium border border-[#253048] hover:border-[#d4a853]/60 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span>{seedingPresets ? "Seeding Presets..." : "Seed Tech Presets"}</span>
+              </button>
+
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-3.5 py-2 rounded-md bg-[#d4a853] text-[#080b12] text-xs font-semibold hover:bg-[#e6c06a] transition-colors flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Register Board</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="surface-card border-[#253048] p-4 rounded-xl">
+              <span className="text-[11px] text-[#8f9cb5] font-mono">Tracked Company Boards</span>
+              <div className="text-xl font-bold text-[#f1ede6] mt-1">{careerPages.length}</div>
+            </div>
+            <div className="surface-card border-[#253048] p-4 rounded-xl">
+              <span className="text-[11px] text-[#8f9cb5] font-mono">Total Positions Discovered</span>
+              <div className="text-xl font-bold text-[#34d399] mt-1 font-mono">
+                {careerPages.reduce((acc, p) => acc + (p.totalJobsFound || 0), 0)}
+              </div>
+            </div>
+            <div className="surface-card border-[#253048] p-4 rounded-xl">
+              <span className="text-[11px] text-[#8f9cb5] font-mono">Discovery Synchronization</span>
+              <div className="text-xl font-bold text-[#38bdf8] mt-1 flex items-center gap-1.5">
+                <Clock className="w-4 h-4" /> Every 24h
+              </div>
+            </div>
+          </div>
+
+          {/* Boards List */}
+          {loadingCareerPages ? (
+            <div className="py-20 text-center text-sm text-[#8f9cb5]">
+              Loading tracked company career boards...
+            </div>
+          ) : careerPages.length === 0 ? (
+            <div className="py-16 text-center text-sm text-[#8f9cb5] surface-card border-[#253048] space-y-3">
+              <Building2 className="w-8 h-8 text-[#57647d] mx-auto" />
+              <p>No company ATS career pages registered in your database yet.</p>
+              <button
+                onClick={handleSeedPresets}
+                disabled={seedingPresets}
+                className="px-4 py-2 rounded-md bg-[#d4a853] text-[#080b12] text-xs font-semibold hover:bg-[#e6c06a] transition-colors inline-flex items-center gap-1.5"
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span>Seed 10 Curated Tech Presets (Stripe, Figma, OpenAI...)</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {careerPages.map((page) => {
+                const isSyncing = syncingPageId === page.id;
+                const providerColor =
+                  page.provider === "greenhouse"
+                    ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
+                    : page.provider === "lever"
+                    ? "text-purple-400 border-purple-500/30 bg-purple-500/10"
+                    : page.provider === "ashby"
+                    ? "text-amber-400 border-amber-500/30 bg-amber-500/10"
+                    : "text-sky-400 border-sky-500/30 bg-sky-500/10";
+
+                return (
+                  <div
+                    key={page.id}
+                    className="surface-card border-[#253048] p-4 flex flex-col justify-between hover:border-[#3b4d73] transition-colors"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-[#f1ede6]">{page.name}</h3>
+                            <span
+                              className={`text-[9px] uppercase font-mono px-1.5 py-0.5 rounded border font-semibold ${providerColor}`}
+                            >
+                              {page.provider}
+                            </span>
+                          </div>
+                          <span className="text-xs text-[#8f9cb5] font-mono mt-1 block">
+                            board slug: {page.slug}
+                          </span>
+                        </div>
+
+                        {page.domain && (
+                          <a
+                            href={`https://${page.domain}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-[#57647d] hover:text-[#d4a853] transition-colors"
+                            title={`Visit ${page.domain}`}
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+
+                      <div className="mt-3.5 space-y-1.5 text-xs text-[#8f9cb5]">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-[#57647d]">Jobs Found:</span>
+                          <span className="font-mono text-[#f1ede6] font-semibold">
+                            {page.totalJobsFound || 0}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-[#57647d]">Sync Status:</span>
+                          <span
+                            className={`text-[10px] uppercase font-mono px-1.5 py-0.2 rounded ${
+                              page.lastSyncStatus === "syncing"
+                                ? "text-amber-400 bg-amber-500/10"
+                                : page.lastSyncStatus === "error"
+                                ? "text-rose-400 bg-rose-500/10"
+                                : "text-emerald-400 bg-emerald-500/10"
+                            }`}
+                          >
+                            {page.lastSyncStatus || "idle"}
+                          </span>
+                        </div>
+                        {page.lastSyncedAt && (
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-[#57647d]">Last Synced:</span>
+                            <span className="text-[#8f9cb5]">
+                              {new Date(page.lastSyncedAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                        {page.lastErrorMessage && (
+                          <p className="text-[10px] text-rose-400 mt-1 line-clamp-1">
+                            {page.lastErrorMessage}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-[#253048]/60 flex items-center justify-end">
+                      <button
+                        onClick={() => handleSyncCareerPage(page)}
+                        disabled={isSyncing}
+                        className="px-3 py-1.5 rounded bg-[#1a2235] text-[#d4a853] text-xs font-semibold border border-[#253048] hover:border-[#d4a853] transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin" : ""}`} />
+                        <span>{isSyncing ? "Syncing..." : "Sync Now"}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Add Board Modal */}
+          {showAddModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+              <div className="surface-card border-[#253048] max-w-md w-full p-6 space-y-4 rounded-xl shadow-2xl">
+                <div className="flex items-center justify-between border-b border-[#253048] pb-3">
+                  <h3 className="text-base font-bold text-[#f1ede6]">
+                    Register Company Career Board
+                  </h3>
+                  <button
+                    onClick={() => setShowAddModal(false)}
+                    className="text-xs text-[#8f9cb5] hover:text-[#f1ede6]"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateCareerPage} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="block text-[#8f9cb5] mb-1 font-medium">Company Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. OpenAI, Stripe, Linear"
+                      value={newBoardName}
+                      onChange={(e) => setNewBoardName(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#0c1019] border border-[#253048] rounded-md text-[#f1ede6] placeholder-[#57647d] focus:outline-none focus:border-[#d4a853]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[#8f9cb5] mb-1 font-medium">ATS Provider *</label>
+                    <select
+                      value={newBoardProvider}
+                      onChange={(e) => setNewBoardProvider(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#0c1019] border border-[#253048] rounded-md text-[#f1ede6] focus:outline-none focus:border-[#d4a853]"
+                    >
+                      <option value="greenhouse">Greenhouse (boards-api.greenhouse.io)</option>
+                      <option value="lever">Lever (api.lever.co)</option>
+                      <option value="ashby">Ashby (api.ashbyhq.com)</option>
+                      <option value="workable">Workable (apply.workable.com)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[#8f9cb5] mb-1 font-medium">
+                      Board Slug / Subdomain *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. stripe (for boards.greenhouse.io/stripe)"
+                      value={newBoardSlug}
+                      onChange={(e) => setNewBoardSlug(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#0c1019] border border-[#253048] rounded-md text-[#f1ede6] placeholder-[#57647d] focus:outline-none focus:border-[#d4a853]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[#8f9cb5] mb-1 font-medium">Domain (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. stripe.com"
+                      value={newBoardDomain}
+                      onChange={(e) => setNewBoardDomain(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#0c1019] border border-[#253048] rounded-md text-[#f1ede6] placeholder-[#57647d] focus:outline-none focus:border-[#d4a853]"
+                    />
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#253048]/60">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(false)}
+                      className="px-3.5 py-1.5 rounded text-xs text-[#8f9cb5] hover:text-[#f1ede6]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingBoard}
+                      className="px-4 py-2 rounded bg-[#d4a853] text-[#080b12] text-xs font-semibold hover:bg-[#e6c06a] transition-colors disabled:opacity-50"
+                    >
+                      {savingBoard ? "Registering..." : "Register Career Board"}
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
         </div>

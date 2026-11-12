@@ -185,6 +185,16 @@ export const ApplicationsView: React.FC<ApplicationsViewProps> = ({
         </div>
       )}
 
+      {/* Empty State Help */}
+      {applications.length === 0 && !loading && !error && (
+        <div className="surface-card border-[#253048] p-4 text-center rounded-xl bg-[#131926]/60">
+          <p className="text-sm text-[#f1ede6] font-medium">No tracked job applications yet</p>
+          <p className="text-xs text-[#8f9cb5] mt-1 max-w-lg mx-auto">
+            Browse live roles from public APIs (RemoteOK, Remotive, Arbeitnow, and ATS boards) under the <span className="text-[#d4a853] font-semibold">Job Discovery</span> tab and click <span className="font-mono text-[#d4a853]">+ Track</span> to immediately import them into your pipeline.
+          </p>
+        </div>
+      )}
+
       {/* Main Board / Table Content */}
       {loading ? (
         <div className="py-24 text-center text-sm text-[#8f9cb5]">

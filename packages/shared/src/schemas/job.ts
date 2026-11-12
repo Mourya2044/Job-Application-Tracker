@@ -11,6 +11,10 @@ export const ScrapedJobSchema = z.object({
   department: z.string().optional().nullable(),
   url: z.string(),
   salary_range: z.string().optional().nullable(),
+  salary_min: z.number().optional().nullable(),
+  salary_max: z.number().optional().nullable(),
+  currency: z.string().optional().nullable(),
+  skills: z.array(z.string()).optional(),
   description_snippet: z.string().optional().nullable(),
   source_type: z.string(),
   posted_at: z.string().optional().nullable(),
@@ -22,6 +26,8 @@ export const JobSearchQuerySchema = z.object({
   query: z.string().optional().default("software"),
   q: z.string().optional(),
   location: z.string().optional().nullable(),
+  source: z.string().optional(),
+  live: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 

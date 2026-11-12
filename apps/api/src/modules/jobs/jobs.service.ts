@@ -28,11 +28,28 @@ export class JobsService {
   }
 
   /**
-   * Searches and filters globally discovered market jobs.
+   * Searches and filters globally discovered market jobs, falling back to real-time aggregators if database is empty.
    */
-  static async searchJobs(params: JobSearchQueryInput & { includeExpired?: boolean; offset?: number }) {
+  static async searchJobs(
+    params: JobSearchQueryInput & { includeExpired?: boolean; offset?: number; source?: string; live?: boolean }
+  ) {
     const limit = Math.min(100, Math.max(1, params.limit || 50));
     const offset = Math.max(0, params.offset || 0);
+    const source = params.source?.toLowerCase().trim();
+
+    // If a specific public aggregator is requested, bypass DB query and fetch directly
+    if (source && source !== "all") {
+      const liveJobs = await this.searchLiveAggregators(params.query || "software", {
+        limit,
+        source,
+      });
+      return {
+        total: liveJobs.length,
+        limit,
+        offset: 0,
+        items: liveJobs,
+      };
+    }
 
     const conditions = [];
 
@@ -70,17 +87,33 @@ export class JobsService {
 
     const total = Number(countRes[0]?.count || 0);
 
-    return {
-      total,
+    // If database has records and live search was not explicitly forced, return them
+    if (total > 0 && !params.live) {
+      return {
+        total,
+        limit,
+        offset,
+        items: items.map((p) => ({
+          ...p,
+          first_seen_at: p.firstSeenAt.toISOString(),
+          last_seen_at: p.lastSeenAt.toISOString(),
+          expired_at: p.expiredAt ? p.expiredAt.toISOString() : null,
+          created_at: p.createdAt.toISOString(),
+        })),
+      };
+    }
+
+    // Fallback: If DB is empty or live search requested, fetch from live public feeds!
+    const liveJobs = await this.searchLiveAggregators(params.query || "software", {
       limit,
-      offset,
-      items: items.map((p) => ({
-        ...p,
-        first_seen_at: p.firstSeenAt.toISOString(),
-        last_seen_at: p.lastSeenAt.toISOString(),
-        expired_at: p.expiredAt ? p.expiredAt.toISOString() : null,
-        created_at: p.createdAt.toISOString(),
-      })),
+      source: params.source,
+    });
+
+    return {
+      total: liveJobs.length,
+      limit,
+      offset: 0,
+      items: liveJobs,
     };
   }
 
@@ -121,6 +154,36 @@ export class JobsService {
     return await db.query.companyCareerPages.findMany({
       orderBy: [desc(companyCareerPages.updatedAt)],
     });
+  }
+
+  /**
+   * Seeds curated tech companies into company_career_pages if not already present.
+   */
+  static async seedPresets(): Promise<{ added: number; existing: number; pages: CompanyCareerPage[] }> {
+    let added = 0;
+    let existing = 0;
+    for (const comp of CURATED_COMPANIES) {
+      const found = await db.query.companyCareerPages.findFirst({
+        where: eq(companyCareerPages.name, comp.name),
+      });
+      if (!found) {
+        await db.insert(companyCareerPages).values({
+          name: comp.name,
+          slug: comp.slug,
+          provider: comp.provider,
+          domain: comp.domain,
+          careerUrl: `https://${comp.domain}/careers`,
+          logoColor: "#60a5fa",
+          isActive: true,
+          syncFrequencyHours: 24,
+        });
+        added++;
+      } else {
+        existing++;
+      }
+    }
+    const pages = await this.listCareerPages();
+    return { added, existing, pages };
   }
 
   /**
@@ -213,25 +276,138 @@ export class JobsService {
   }
 
   /**
-   * Aggregates live jobs across public feeds (RemoteOK, Remotive, Arbeitnow) with deduplication.
+   * Aggregates live jobs across public feeds (RemoteOK, Remotive, Arbeitnow) and ATS boards with deduplication.
    */
-  static async searchLiveAggregators(query = "software", limit = 20): Promise<ScrapedJobDto[]> {
-    const results = await Promise.allSettled([
-      AdapterRegistry.getAdapter("remoteok").fetchJobs(query, { limit }),
-      AdapterRegistry.getAdapter("remotive").fetchJobs(query, { limit }),
-      AdapterRegistry.getAdapter("arbeitnow").fetchJobs(query, { limit }),
-    ]);
+  static async searchLiveAggregators(
+    query = "software",
+    options: { limit?: number; source?: string } | number = 20
+  ): Promise<ScrapedJobDto[]> {
+    const opts = typeof options === "number" ? { limit: options } : options || {};
+    const limit = Math.min(100, Math.max(1, opts.limit || 20));
+    const source = (opts.source || "all").toLowerCase().trim();
+    const q = (query || "software").trim();
 
+    const fetchPromises: Promise<ScrapedJobDto[]>[] = [];
+
+    const safeFetch = async (adapterName: string, identifier: string, fetchOpts: any): Promise<ScrapedJobDto[]> => {
+      try {
+        const adapter = AdapterRegistry.getAdapter(adapterName);
+        return await adapter.fetchJobs(identifier, fetchOpts);
+      } catch (err: any) {
+        console.warn(`[searchLiveAggregators] ${adapterName} adapter error:`, err?.message || err);
+        return [];
+      }
+    };
+
+    // 1. Check if query matches a curated company name or slug
+    const matchedCompany = CURATED_COMPANIES.find(
+      (c) =>
+        c.name.toLowerCase() === q.toLowerCase() ||
+        c.slug.toLowerCase() === q.toLowerCase()
+    );
+
+    if (matchedCompany) {
+      fetchPromises.push(safeFetch(matchedCompany.provider, matchedCompany.slug, { limit }));
+    }
+
+    // 2. Route based on requested source
+    if (source === "remoteok") {
+      fetchPromises.push(safeFetch("remoteok", q, { limit }));
+    } else if (source === "remotive") {
+      fetchPromises.push(safeFetch("remotive", q, { limit }));
+    } else if (source === "arbeitnow") {
+      fetchPromises.push(safeFetch("arbeitnow", q, { limit }));
+    } else if (source === "greenhouse") {
+      const ghCompanies = CURATED_COMPANIES.filter((c) => c.provider === "greenhouse");
+      const target = ghCompanies.find((c) => c.name.toLowerCase() === q.toLowerCase() || c.slug.toLowerCase() === q.toLowerCase()) || ghCompanies[0];
+      fetchPromises.push(safeFetch("greenhouse", target.slug, { limit }));
+    } else if (source === "lever") {
+      const leverCompanies = CURATED_COMPANIES.filter((c) => c.provider === "lever");
+      const target = leverCompanies.find((c) => c.name.toLowerCase() === q.toLowerCase() || c.slug.toLowerCase() === q.toLowerCase()) || leverCompanies[0];
+      fetchPromises.push(safeFetch("lever", target.slug, { limit }));
+    } else if (source === "ashby") {
+      const ashbyCompanies = CURATED_COMPANIES.filter((c) => c.provider === "ashby");
+      const target = ashbyCompanies.find((c) => c.name.toLowerCase() === q.toLowerCase() || c.slug.toLowerCase() === q.toLowerCase()) || ashbyCompanies[0];
+      fetchPromises.push(safeFetch("ashby", target.slug, { limit }));
+    } else {
+      // "all" or default: query RemoteOK, Remotive, Arbeitnow
+      fetchPromises.push(safeFetch("remoteok", q, { limit }));
+      fetchPromises.push(safeFetch("remotive", q, { limit }));
+      fetchPromises.push(safeFetch("arbeitnow", q, { limit }));
+
+      // If general query and no specific company requested, also query Stripe for rich ATS postings
+      if (!matchedCompany && (q === "software" || q.toLowerCase().includes("engineer") || q.toLowerCase().includes("developer"))) {
+        fetchPromises.push(safeFetch("greenhouse", "stripe", { limit: 10 }));
+      }
+    }
+
+    const results = await Promise.allSettled(fetchPromises);
     const allScraped: ScrapedJobDto[] = [];
     for (const res of results) {
-      if (res.status === "fulfilled") {
+      if (res.status === "fulfilled" && Array.isArray(res.value)) {
         allScraped.push(...res.value);
       }
     }
 
+    // Enhance jobs with normalization: salary parsing and skill extraction
+    const enhanced: ScrapedJobDto[] = allScraped.map((job) => {
+      const norm = JobNormalizer.normalizeJob(job);
+      const textToScan = `${job.title} ${job.description_snippet || ""}`;
+      const skills = JobNormalizer.extractSkills(textToScan);
+      return {
+        ...job,
+        salary_range: norm.parsedSalary?.raw || job.salary_range || null,
+        salary_min: norm.parsedSalary?.minValue ?? null,
+        salary_max: norm.parsedSalary?.maxValue ?? null,
+        currency: norm.parsedSalary?.currency || "USD",
+        skills,
+      };
+    });
+
     // Deduplicate cross-source duplicates
-    const { uniqueJobs } = JobDeduplicator.deduplicateBatch(allScraped, []);
-    return uniqueJobs.slice(0, limit);
+    const { uniqueJobs } = JobDeduplicator.deduplicateBatch(enhanced, []);
+    const finalJobs = uniqueJobs.slice(0, limit);
+
+    // Cache to DB in background so future DB searches are populated
+    this.cacheJobsToDb(finalJobs).catch(() => {});
+
+    return finalJobs;
+  }
+
+  /**
+   * Caches discovered jobs to the database table in the background.
+   */
+  private static async cacheJobsToDb(jobs: ScrapedJobDto[]): Promise<void> {
+    if (!jobs || jobs.length === 0) return;
+    try {
+      for (const job of jobs) {
+        const existing = await db
+          .select({ id: jobPostings.id })
+          .from(jobPostings)
+          .where(eq(jobPostings.jobUrl, job.url))
+          .limit(1);
+
+        if (existing.length === 0) {
+          await db.insert(jobPostings).values({
+            externalJobId: job.id,
+            sourceType: job.source_type,
+            companyName: job.company_name,
+            companyDomain: job.company_domain || null,
+            roleTitle: job.title,
+            location: job.location || null,
+            salaryRange: job.salary_range || null,
+            jobUrl: job.url,
+            department: job.department || null,
+            descriptionSnippet: job.description_snippet || null,
+            firstSeenAt: new Date(),
+            lastSeenAt: new Date(),
+            isExpired: false,
+          });
+        }
+      }
+    } catch {
+      // Non-blocking background caching
+    }
   }
 
   /**
