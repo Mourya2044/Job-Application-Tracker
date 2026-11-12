@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Navbar, NavTab } from "./components/layout/Navbar";
 import { DashboardView } from "./components/dashboard/DashboardView";
@@ -14,6 +14,16 @@ const AppContent: React.FC = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [isNewAppOpen, setIsNewAppOpen] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get("tab") as NavTab;
+    if (tabParam && ["dashboard", "applications", "jobs", "mailbox", "ai"].includes(tabParam)) {
+      setActiveTab(tabParam);
+    } else if (params.has("connected") || params.has("mailbox")) {
+      setActiveTab("mailbox");
+    }
+  }, []);
 
   const handleOpenAuth = (mode: "login" | "register") => {
     setAuthMode(mode);

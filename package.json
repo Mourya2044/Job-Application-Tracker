@@ -14,6 +14,7 @@
     "build:api": "npm --workspace=apps/api run build",
     "build:web": "npm --workspace=apps/web run build",
     "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "deploy:aws": "powershell -ExecutionPolicy Bypass -File ./deploy-aws.ps1",
     "test": "npm run --workspaces --if-present test",
     "typecheck": "npm run --workspaces --if-present typecheck"
   },

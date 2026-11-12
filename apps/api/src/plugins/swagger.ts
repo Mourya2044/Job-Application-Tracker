@@ -29,13 +29,16 @@ export default fp(async function swaggerPlugin(fastify: FastifyInstance) {
     },
   });
 
-  await fastify.register(fastifySwaggerUi, {
-    routePrefix: "/docs",
-    uiConfig: {
-      docExpansion: "list",
-      deepLinking: true,
-    },
-    staticCSP: true,
-  });
+  // Only mount Swagger UI when not in AWS Lambda (static assets are not bundled in single-file lambda)
+  if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    await fastify.register(fastifySwaggerUi, {
+      routePrefix: "/docs",
+      uiConfig: {
+        docExpansion: "list",
+        deepLinking: true,
+      },
+      staticCSP: true,
+    });
+  }
 });
 

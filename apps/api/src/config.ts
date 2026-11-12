@@ -2,12 +2,10 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const configDir = path.dirname(fileURLToPath(import.meta.url));
 
-// Load .env from backend or root if present
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
-dotenv.config({ path: path.resolve(__dirname, "../../../backend/.env") });
+// Load .env from api module, root, or legacy paths if present
+dotenv.config({ path: path.resolve(configDir, "../.env") });
 
 export const config = {
   env: process.env.NODE_ENV || "development",
@@ -16,7 +14,7 @@ export const config = {
   host: process.env.HOST || "0.0.0.0",
 
   db: {
-    url: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/track_db",
+    url: process.env.DATABASE_URL,
   },
 
   auth: {
@@ -24,15 +22,15 @@ export const config = {
       process.env.JWT_SECRET ||
       (process.env.NODE_ENV === "production"
         ? (() => {
-            throw new Error("JWT_SECRET environment variable is mandatory in production.");
-          })()
+          throw new Error("JWT_SECRET environment variable is mandatory in production.");
+        })()
         : "dev-jwt-secret-min-32-chars-long-track-app-key"),
     cookieSecret:
       process.env.COOKIE_SECRET ||
       (process.env.NODE_ENV === "production"
         ? (() => {
-            throw new Error("COOKIE_SECRET environment variable is mandatory in production.");
-          })()
+          throw new Error("COOKIE_SECRET environment variable is mandatory in production.");
+        })()
         : "dev-cookie-secret-min-32-chars-long-key"),
     saltRounds: 10,
     sessionExpiresIn: "7d",

@@ -29,6 +29,14 @@ app.include_router(generation.router)
 app.include_router(extraction.router)
 app.include_router(embeddings.router)
 
+# Serverless AWS Lambda Handler
+try:
+    from mangum import Mangum
+
+    handler = Mangum(app, lifespan="off")
+except ImportError:
+    handler = None
+
 if __name__ == "__main__":
     import uvicorn
 

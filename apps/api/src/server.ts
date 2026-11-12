@@ -22,6 +22,24 @@ export function buildServer(): FastifyInstance {
     bodyLimit: 1048576, // 1MB payload ceiling
   });
 
+  // Support empty JSON bodies gracefully without throwing 400
+  fastify.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (req, body: string, done) => {
+      if (!body || body.trim() === "") {
+        return done(null, {});
+      }
+      try {
+        const parsed = JSON.parse(body);
+        done(null, parsed);
+      } catch (err: any) {
+        err.statusCode = 400;
+        done(err, undefined);
+      }
+    }
+  );
+
   // 1. Error Handler
   setupErrorHandler(fastify);
 

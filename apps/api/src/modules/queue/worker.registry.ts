@@ -61,6 +61,28 @@ export class WorkerRegistry {
   }
 
   /**
+   * Serverless execution: drains a discrete batch of jobs on demand without a persistent polling loop.
+   */
+  static async drainBatch(batchSize = 10): Promise<{ processed: number; errors: number }> {
+    const registeredNames = Array.from(this.handlers.keys());
+    if (registeredNames.length === 0) return { processed: 0, errors: 0 };
+
+    const jobs = await QueueService.fetchNext(registeredNames, batchSize);
+    let processed = 0;
+    let errors = 0;
+
+    for (const job of jobs) {
+      try {
+        await this.executeJob(job);
+        processed++;
+      } catch {
+        errors++;
+      }
+    }
+    return { processed, errors };
+  }
+
+  /**
    * Executes a single job, tracks completion and handles failures.
    */
   private static async executeJob(job: QueueJobRecord): Promise<void> {

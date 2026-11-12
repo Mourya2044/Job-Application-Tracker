@@ -1,0 +1,199 @@
+service: track-platform
+frameworkVersion: "^3.38.0"
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'ap-south-1'}
+  stage: ${opt:stage, 'production'}
+  architecture: arm64
+  memorySize: 512
+  timeout: 28
+  httpApi:
+    cors:
+      allowedOrigins:
+        - "https://${self:custom.domains.${self:provider.stage}, 'localhost:3000'}"
+        - "http://localhost:3000"
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - Cookie
+        - X-Requested-With
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowCredentials: true
+  environment:
+    NODE_ENV: ${env:NODE_ENV, 'production'}
+    DATABASE_URL: ${env:DATABASE_URL}
+    JWT_SECRET: ${env:JWT_SECRET}
+    COOKIE_SECRET: ${env:COOKIE_SECRET}
+    ENCRYPTION_KEY: ${env:ENCRYPTION_KEY}
+    GMAIL_WEBHOOK_SECRET: ${env:GMAIL_WEBHOOK_SECRET}
+    AI_SERVICE_URL: ${env:AI_SERVICE_URL, ''}
+    GOOGLE_CLIENT_ID: ${env:GOOGLE_CLIENT_ID}
+    GOOGLE_CLIENT_SECRET: ${env:GOOGLE_CLIENT_SECRET}
+    GOOGLE_REDIRECT_URI: ${env:GOOGLE_REDIRECT_URI}
+    CORS_ORIGINS: ${env:CORS_ORIGINS}
+
+custom:
+  domains:
+    production: track.mourya.tech
+    staging: staging.track.mourya.tech
+
+package:
+  individually: true
+  patterns:
+    - "!**"
+    - "apps/api/dist/lambda.mjs"
+
+functions:
+  # 1. Fastify Core API Gateway on AWS Lambda
+  api:
+    handler: apps/api/dist/lambda.handler
+    description: "Track Fastify Core API Gateway on AWS Lambda"
+    memorySize: 512
+    timeout: 28
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/{proxy+}
+      - httpApi:
+          method: GET
+          path: /health
+      - httpApi:
+          method: GET
+          path: /health/ready
+
+  # 2. EventBridge Scheduled Queue Runner
+  queueWorker:
+    handler: apps/api/dist/lambda.handler
+    description: "Scheduled EventBridge worker for transactional outbox & queue processing"
+    memorySize: 512
+    timeout: 120
+    events:
+      - schedule:
+          rate: rate(2 minutes)
+          enabled: true
+          input:
+            action: process_queue
+            source: aws.events
+
+resources:
+  Resources:
+    # Static Web S3 Bucket for Vite React SPA
+    StaticWebBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Sub "${self:service}-${self:provider.stage}-web-${AWS::AccountId}"
+
+    # CloudFront Origin Access Identity (OAI) for secure S3 access
+    CloudFrontOAI:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: !Sub "OAI for ${self:service}-${self:provider.stage}"
+
+    # S3 Bucket Policy allowing CloudFront OAI read access
+    StaticWebBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref StaticWebBucket
+        PolicyDocument:
+          Statement:
+            - Action: "s3:GetObject"
+              Effect: Allow
+              Resource: !Sub "arn:aws:s3:::${StaticWebBucket}/*"
+              Principal:
+                CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+
+    # Unified CloudFront CDN Distribution for Frontend + Backend
+    CloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          DefaultRootObject: index.html
+          Comment: !Sub "${self:service}-${self:provider.stage} CDN Distribution"
+          Aliases:
+            - track.mourya.tech
+          ViewerCertificate:
+            AcmCertificateArn: ${env:ACM_CERTIFICATE_ARN}
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          Origins:
+            # 1. Frontend React SPA on S3
+            - Id: S3Origin
+              DomainName: !GetAtt StaticWebBucket.RegionalDomainName
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+            # 2. Fastify Core API Gateway
+            - Id: ApiGatewayOrigin
+              DomainName: !Sub "${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+              CustomOriginConfig:
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+          DefaultCacheBehavior:
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+          CacheBehaviors:
+            - PathPattern: /api/*
+              TargetOriginId: ApiGatewayOrigin
+              ViewerProtocolPolicy: redirect-to-https
+              AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+              CachedMethods: [GET, HEAD, OPTIONS]
+              Compress: true
+              DefaultTTL: 0
+              MinTTL: 0
+              MaxTTL: 0
+              ForwardedValues:
+                QueryString: true
+                Headers:
+                  - Authorization
+                  - Accept
+                  - Content-Type
+                  - Origin
+                  - Referer
+                Cookies:
+                  Forward: all
+            - PathPattern: /health*
+              TargetOriginId: ApiGatewayOrigin
+              ViewerProtocolPolicy: redirect-to-https
+              AllowedMethods: [GET, HEAD, OPTIONS]
+              CachedMethods: [GET, HEAD, OPTIONS]
+              Compress: true
+              DefaultTTL: 0
+              MinTTL: 0
+              MaxTTL: 0
+              ForwardedValues:
+                QueryString: false
+                Cookies:
+                  Forward: none
+          CustomErrorResponses:
+            - ErrorCode: 403
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+
+  Outputs:
+    CloudFrontDistributionId:
+      Value: !Ref CloudFrontDistribution
+      Description: "CloudFront Distribution ID"
+    CloudFrontDomainName:
+      Value: !GetAtt CloudFrontDistribution.DomainName
+      Description: "CloudFront Distribution Domain Name for track.mourya.tech"

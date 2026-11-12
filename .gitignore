@@ -35,6 +35,7 @@ node_modules/
 dist/
 dist-ssr/
 build/
+.serverless/
 *.tsbuildinfo
 *.local
 npm-debug.log*

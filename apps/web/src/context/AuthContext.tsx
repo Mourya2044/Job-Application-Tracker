@@ -13,6 +13,9 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<{ code?: string; message: string }>;
+  resetPassword: (email: string, code: string, newPassword: string) => Promise<{ message: string }>;
+  loginWithGoogle: () => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -54,6 +57,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(data.user);
   };
 
+  const forgotPassword = async (email: string) => {
+    return await apiFetch<{ code?: string; message: string }>("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  };
+
+  const resetPassword = async (email: string, code: string, newPassword: string) => {
+    return await apiFetch<{ message: string }>("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ email, code, newPassword }),
+    });
+  };
+
+  const loginWithGoogle = () => {
+    window.location.href = "/api/auth/google";
+  };
+
   const logout = async () => {
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
@@ -63,7 +84,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        register,
+        forgotPassword,
+        resetPassword,
+        loginWithGoogle,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

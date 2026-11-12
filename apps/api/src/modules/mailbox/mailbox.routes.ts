@@ -58,12 +58,7 @@ export const mailboxRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         request.log.warn({ err }, "Could not set up Gmail watch during initial callback");
       }
 
-      return reply.send({
-        success: true,
-        message: "Gmail account connected successfully.",
-        mailboxId: mailbox.id,
-        emailAddress: mailbox.emailAddress,
-      });
+      return reply.redirect("/?tab=mailbox&connected=true");
     }
   );
 
@@ -139,12 +134,48 @@ export const mailboxRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         });
       }
 
-      const result = await GmailSyncService.syncMailbox(mailbox.id, { fullReconciliation: false });
-      return reply.send(result);
+      try {
+        const result = await GmailSyncService.syncMailbox(mailbox.id, { fullReconciliation: false });
+        return reply.send(result);
+      } catch (err: any) {
+        if (err.message && err.message.includes("Re-authorization required")) {
+          return reply.status(400).send({
+            statusCode: 400,
+            error: "ReauthorizationRequired",
+            message: "Mailbox authorization has expired. Please reconnect your Gmail account.",
+          });
+        }
+        throw err;
+      }
     }
   );
 
-  // 6. Disconnect Mailbox (Authenticated)
+  // 6a. Disconnect Active Mailbox for Current User (Authenticated)
+  fastify.delete(
+    "/disconnect",
+    {
+      onRequest: [fastify.authenticate],
+      schema: {
+        description: "Disconnect active mailbox account and revoke OAuth tokens",
+        tags: ["mailbox"],
+        summary: "Disconnect active mailbox",
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const mailboxes = await db.query.userMailboxAccounts.findMany({
+        where: eq(userMailboxAccounts.userId, request.user.id),
+      });
+
+      for (const mailbox of mailboxes) {
+        await GoogleOAuthService.disconnectMailbox(request.user.id, mailbox.id);
+      }
+
+      return reply.send({ success: true, message: "Disconnected successfully." });
+    }
+  );
+
+  // 6b. Disconnect Mailbox by ID (Authenticated)
   fastify.delete(
     "/:id",
     {
