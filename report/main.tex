@@ -1,0 +1,167 @@
+\documentclass[12pt,a4paper,oneside]{report}
+
+% ---------------------------------------------------------
+% Essential Packages
+% ---------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{
+    top=1.0in,
+    bottom=1.0in,
+    left=1.25in,
+    right=1.0in,
+    headheight=15pt
+}
+\usepackage{setspace}
+\onehalfspacing
+
+\usepackage{amsmath, amsfonts, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, arrows.meta, positioning, calc}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=green!50!black,
+    urlcolor=blue!80!black,
+    pdftitle={Track: Career Intelligence Platform - Capstone Project Report},
+    pdfauthor={Track Platform Engineering Team}
+}
+\usepackage{microtype}
+\usepackage{fancyhdr}
+\usepackage{cite}
+
+% ---------------------------------------------------------
+% Code Listings Configuration
+% ---------------------------------------------------------
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.98}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen}\itshape,
+    keywordstyle=\color{magenta}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    frame=single,
+    rulecolor=\color{gray!30}
+}
+\lstset{style=mystyle}
+
+% ---------------------------------------------------------
+% Header & Footer Settings
+% ---------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\slshape \leftmark}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------------------------------------------------------
+% Project Metadata Placeholders (Easily editable by user)
+% ---------------------------------------------------------
+\newcommand{\projectTitle}{Track: A Privacy-Conscious, Multi-Tenant Career Intelligence and Application Lifecycle Management Platform}
+\newcommand{\studentName}{Mourya Saha}
+\newcommand{\studentRoll}{002310501036}
+\newcommand{\supervisorName}{Prof. Sarbani Roy}
+\newcommand{\supervisorDesignation}{Professor}
+\newcommand{\departmentName}{Department of Computer Science and Engineering}
+\newcommand{\institutionName}{Jadavpur University, Kolkata}
+\newcommand{\degreeName}{Bachelor of Engineering in Computer Science and Engineering}
+\newcommand{\submissionDate}{November 2026}
+
+% ---------------------------------------------------------
+% Document Body
+% ---------------------------------------------------------
+\begin{document}
+
+% Preliminary Pages (Roman Numerals)
+\pagenumbering{roman}
+\input{chapters/00_preliminary}
+
+% Table of Contents and Lists
+\tableofcontents
+\newpage
+\listoffigures
+\newpage
+\listoftables
+\newpage
+
+% List of Abbreviations
+\chapter*{List of Abbreviations}
+\addcontentsline{toc}{chapter}{List of Abbreviations}
+\begin{tabular}{ll}
+\textbf{ACID} & Atomicity, Consistency, Isolation, Durability \\
+\textbf{AES} & Advanced Encryption Standard \\
+\textbf{API} & Application Programming Interface \\
+\textbf{ARM} & Advanced RISC Machines \\
+\textbf{ATS} & Applicant Tracking System \\
+\textbf{CDN} & Content Delivery Network \\
+\textbf{CPU} & Central Processing Unit \\
+\textbf{CSV} & Comma-Separated Values \\
+\textbf{DNS} & Domain Name System \\
+\textbf{ER} & Entity-Relationship \\
+\textbf{JSON} & JavaScript Object Notation \\
+\textbf{JWT} & JSON Web Token \\
+\textbf{LLM} & Large Language Model \\
+\textbf{NER} & Named Entity Recognition \\
+\textbf{OAuth} & Open Authorization \\
+\textbf{ORM} & Object-Relational Mapping \\
+\textbf{REST} & Representational State Transfer \\
+\textbf{RFC} & Request for Comments \\
+\textbf{S3} & Simple Storage Service (Amazon AWS) \\
+\textbf{SLM} & Small Language Model \\
+\textbf{SPA} & Single-Page Application \\
+\textbf{SQL} & Structured Query Language \\
+\textbf{SSRF} & Server-Side Request Forgery \\
+\textbf{TLS} & Transport Layer Security \\
+\textbf{UI} & User Interface \\
+\textbf{URI} & Uniform Resource Identifier \\
+\textbf{URL} & Uniform Resource Locator \\
+\textbf{WAF} & Web Application Firewall
+\end{tabular}
+
+\newpage
+% Main Body (Arabic Numerals)
+\pagenumbering{arabic}
+\input{chapters/01_introduction}
+\input{chapters/02_literature_review}
+\input{chapters/03_requirements_feasibility}
+\input{chapters/04_system_architecture}
+\input{chapters/05_implementation}
+\input{chapters/06_evaluation_results}
+\input{chapters/07_discussion_ui}
+\input{chapters/08_conclusion}
+
+% Bibliography
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+% Appendices
+\appendix
+\input{chapters/09_appendices}
+
+\end{document}

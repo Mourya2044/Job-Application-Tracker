@@ -1,0 +1,51 @@
+\chapter{Discussion, Screenshots, and User Interfaces}
+\label{ch:discussion_ui}
+
+\section{Prototype User Interfaces and Workflow Walkthrough}
+The Track frontend delivers an intuitive, responsive user experience optimized for desktop and mobile displays. The interface comprises four primary views:
+
+\subsection{Interactive Application Kanban Board}
+The central dashboard displays candidate applications grouped into columns corresponding to the lifecycle states: \textbf{Saved}, \textbf{Applied}, \textbf{Screening}, \textbf{Interviewing}, \textbf{Offer}, and \textbf{Rejected}.
+
+Each application card renders:
+\begin{itemize}
+    \item Company name, job title, and salary range (if captured).
+    \item Days spent in current stage (computed dynamically to track application velocity).
+    \item A visual \textbf{Stage Lock} indicator badge (depicting whether automated email workers are permitted to alter this application's status).
+    \item Direct action menus to trigger stage promotion, stage lock toggling, or view the complete audit timeline.
+\end{itemize}
+
+\subsection{Job Discovery and Career Portal Management}
+The discovery portal provides two views:
+\begin{itemize}
+    \item \textbf{Aggregated Job Stream}: A searchable, paginated catalog of all ingested jobs with real-time keyword search, remote/hybrid filters, and a single-click ``Track Application'' button. Duplicate postings are automatically consolidated with multi-source attribution badges.
+    \item \textbf{Career Pages Admin Console}: An administrative interface allowing users to register target company career boards by specifying provider type (\textit{Greenhouse, Lever, Ashby, Workable}) and company slug, displaying real-time sync telemetry (\textit{Total Jobs Found}, \textit{Last Synced At}, \textit{Sync Status}).
+\end{itemize}
+
+\subsection{Recruiter Mailbox Review and Intent Classification}
+The Mailbox Review screen surfaces emails synchronized through the Google OAuth2 Pub/Sub integration. When an email indicates an interview request or rejection, a review modal highlights the extracted company name, role, and suggested transition alongside current application data, allowing the user to confirm or decline the proposed transition with zero cognitive friction.
+
+\subsection{AI Career Copilot Drawer}
+Accessible from anywhere in the application, the AI Copilot slide-over drawer features:
+\begin{itemize}
+    \item \textbf{ATS Keyword Heatmap}: Visualizing high-frequency missing keywords between candidate resume text and target job specifications.
+    \item \textbf{Google XYZ Bullet Rewriter}: An interactive form that prompts for raw project outcomes and generates structured achievement bullets formatted according to Google's standard recruitment rubric (\textit{Accomplished [X] as measured by [Y] by doing [Z]}).
+\end{itemize}
+
+\section{Engineering Challenges Overcome}
+
+\subsection{Resolving the Destructive Overwrite Problem}
+A significant challenge in building autonomous email tracking systems is the risk of conflicting status transitions. For instance, an applicant may interview for a Senior Engineer position while simultaneously receiving an automated rejection email for an older entry-level requisition at the same enterprise. Without strict safeguards, an automated email listener would parse the incoming rejection and immediately downgrade the applicant's status to \texttt{rejected}.
+
+The implementation of the **Stage Lock** mechanism and the **Human-in-the-Loop Review Drawer** completely resolved this challenge. Applications marked with \texttt{is\_stage\_locked = true} discard automated mutations, requiring explicit user verification while continuing to log the incoming email to the audit record.
+
+\subsection{Optimizing Neural Models for Low-Memory Serverless Execution}
+Hosting large transformer models (such as BERT-Large or LLMs with $>7$ billion parameters) in cloud environments incurs substantial memory footprints ($>8$GB VRAM) and significant financial costs. 
+
+To overcome this, we selected parameter-efficient models (\texttt{bge-small-en-v1.5} and \texttt{gliner\_small-v2.1}) specifically optimized for CPU execution. Quantization and dual-engine fallback architectures ensure that inference executes within 380MB of RAM in under 30ms, completely avoiding costly GPU instances.
+
+\subsection{Mitigating Cloudflare and CloudFront SSL Redirect Loops}
+During the production deployment of \texttt{track.mourya.tech}, an \texttt{ERR\_TOO\_MANY\_REDIRECTS} loop occurred when proxying traffic through Cloudflare with the SSL encryption mode set to ``Flexible''. In this mode, Cloudflare contacted the AWS CloudFront edge over unencrypted HTTP (port 80). Because CloudFront was configured with \texttt{ViewerProtocolPolicy: redirect-to-https}, CloudFront issued an HTTP 301 redirect back to HTTPS, which Cloudflare subsequently re-sent over HTTP, causing an infinite loop.
+
+This was resolved by reconfiguring the Cloudflare DNS record to **DNS Only (Grey Cloud)** or enforcing **Full (Strict) SSL**, allowing the AWS Certificate Manager (ACM) SSL certificate on CloudFront to handle end-to-end TLS termination seamlessly.
+

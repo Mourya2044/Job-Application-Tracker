@@ -1,0 +1,241 @@
+\chapter{System Architecture and Design}
+\label{ch:system_architecture}
+
+\section{High-Level System Architecture}
+The Track platform is engineered around a modern, decoupled microservices paradigm organized as a unified monorepo. Figure \ref{fig:high_level_arch} illustrates the high-level system topology, highlighting the interaction between external clients, edge networks, compute services, and persistence layers.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=1.5cm and 2.0cm,
+    block/.style={rectangle, draw=blue!70, fill=blue!5, thick, rounded corners, minimum width=2.8cm, minimum height=1cm, align=center, font=\small},
+    service/.style={rectangle, draw=purple!70, fill=purple!5, thick, rounded corners, minimum width=2.8cm, minimum height=1cm, align=center, font=\small},
+    db/.style={cylinder, draw=green!60!black, fill=green!5, thick, shape border rotate=90, minimum width=2.2cm, minimum height=1.2cm, align=center, font=\small},
+    edge/.style={rectangle, draw=orange!70, fill=orange!5, thick, rounded corners, minimum width=3.2cm, minimum height=1cm, align=center, font=\small},
+    line/.style={draw, -latex', thick}
+]
+    % Nodes
+    \node [block] (client) {React 18 SPA\\(Browser Client)};
+    \node [edge, right=of client] (cf) {CloudFront Edge\\(track.mourya.tech)};
+    \node [block, above=1.2cm of cf] (s3) {Amazon S3\\(Static Web Bundle)};
+    \node [service, right=of cf] (apigw) {HTTP API Gateway v2\\(AWS ap-south-1)};
+    \node [service, right=of apigw] (lambda) {Fastify 5 Lambda\\(Node.js 20 ARM64)};
+    \node [db, below=1.5cm of lambda] (neon) {Neon PostgreSQL\\(Serverless DB)};
+    \node [service, below=1.5cm of apigw] (ai) {AI Microservice\\(FastAPI / PyTorch)};
+    \node [block, below=1.5cm of client] (gmail) {Gmail Pub/Sub\\(OAuth2 Webhook)};
+    
+    % Connections
+    \draw [line] (client) -- node[above, font=\footnotesize]{HTTPS} (cf);
+    \draw [line] (cf) -- node[left, font=\footnotesize]{Origin} (s3);
+    \draw [line] (cf) -- node[above, font=\footnotesize]{/api/*} (apigw);
+    \draw [line] (apigw) -- node[above, font=\footnotesize]{Proxy} (lambda);
+    \draw [line] (lambda) -- node[right, font=\footnotesize]{Drizzle ORM} (neon);
+    \draw [line] (lambda) -- node[above, font=\footnotesize]{HTTP RPC} (ai);
+    \draw [line] (gmail) -- node[above, font=\footnotesize]{Webhook} (lambda);
+    \draw [line] (ai) |- node[below, font=\footnotesize]{Embeddings} (neon);
+\end{tikzpicture}
+\caption{Track High-Level System Architecture and Component Interaction}
+\label{fig:high_level_arch}
+\end{figure}
+
+The architecture enforces strict separation of concerns across tiers:
+\begin{enumerate}
+    \item \textbf{Edge Delivery Tier}: Amazon CloudFront terminates TLS sessions using an AWS Certificate Manager (ACM) SSL certificate bound to the custom domain \texttt{track.mourya.tech}. Requests for static assets are served from Amazon S3, while dynamic API calls matching \texttt{/api/*} are forwarded directly to the API Gateway.
+    \item \textbf{Application Compute Tier}: Built on Fastify 5 and bundled into a self-contained ES module executed within an AWS Lambda ARM64 runtime. Fastify handles routing, input schema validation, session cookies, and database transactions.
+    \item \textbf{Persistence and Queue Tier}: Hosted on Neon Serverless PostgreSQL. In addition to relational business data, the database houses the transactional outbox queue, managing background job synchronization with row-level locks.
+    \item \textbf{AI Inference Tier}: An asynchronous FastAPI service hosting PyTorch neural models (\texttt{GLiNER} and \texttt{BGE-small}) to perform embedding generation, zero-shot entity recognition, and resume optimization.
+\end{enumerate}
+
+\section{Database Schema and Entity-Relationship Model}
+The persistence layer utilizes PostgreSQL 15, managed through Drizzle ORM. The relational schema is structured around normalized tables designed to maintain strict referential integrity.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=1.2cm and 1.8cm,
+    entity/.style={rectangle, draw=black!70, fill=gray!10, thick, rounded corners, minimum width=3.2cm, minimum height=1.6cm, align=left, font=\scriptsize},
+    rel/.style={draw, -latex', thick}
+]
+    \node [entity] (users) {
+        \textbf{users} \\
+        \rule{2.8cm}{0.4pt} \\
+        \underline{id}: UUID (PK) \\
+        email: VARCHAR \\
+        password\_hash: VARCHAR \\
+        google\_id: VARCHAR \\
+        created\_at: TIMESTAMP
+    };
+
+    \node [entity, right=of users] (apps) {
+        \textbf{applications} \\
+        \rule{2.8cm}{0.4pt} \\
+        \underline{id}: UUID (PK) \\
+        user\_id: UUID (FK) \\
+        company\_name: VARCHAR \\
+        job\_title: VARCHAR \\
+        current\_stage: VARCHAR \\
+        is\_stage\_locked: BOOLEAN \\
+        created\_at: TIMESTAMP
+    };
+
+    \node [entity, right=of apps] (events) {
+        \textbf{application\_status\_events} \\
+        \rule{2.8cm}{0.4pt} \\
+        \underline{id}: UUID (PK) \\
+        application\_id: UUID (FK) \\
+        from\_stage: VARCHAR \\
+        to\_stage: VARCHAR \\
+        actor: VARCHAR \\
+        created\_at: TIMESTAMP
+    };
+
+    \node [entity, below=of users] (pages) {
+        \textbf{company\_career\_pages} \\
+        \rule{2.8cm}{0.4pt} \\
+        \underline{id}: UUID (PK) \\
+        company\_name: VARCHAR \\
+        provider: VARCHAR \\
+        slug: VARCHAR \\
+        last\_synced\_at: TIMESTAMP
+    };
+
+    \node [entity, below=of apps] (jobs) {
+        \textbf{job\_postings} \\
+        \rule{2.8cm}{0.4pt} \\
+        \underline{id}: UUID (PK) \\
+        career\_page\_id: UUID (FK) \\
+        normalized\_company: VARCHAR \\
+        job\_title: VARCHAR \\
+        job\_url: VARCHAR \\
+        is\_active: BOOLEAN
+    };
+
+    \node [entity, below=of events] (msgs) {
+        \textbf{mailbox\_messages} \\
+        \rule{2.8cm}{0.4pt} \\
+        \underline{id}: UUID (PK) \\
+        user\_id: UUID (FK) \\
+        message\_id: VARCHAR \\
+        sender: VARCHAR \\
+        parsed\_intent: VARCHAR \\
+        processed\_at: TIMESTAMP
+    };
+
+    % Relationships
+    \draw [rel] (users) -- node[above, font=\tiny]{1:N} (apps);
+    \draw [rel] (apps) -- node[above, font=\tiny]{1:N} (events);
+    \draw [rel] (pages) -- node[above, font=\tiny]{1:N} (jobs);
+    \draw [rel] (users) -- node[left, font=\tiny]{1:N} (msgs);
+    \draw [rel] (apps) -- node[right, font=\tiny]{0:N} (msgs);
+\end{tikzpicture}
+\caption{Entity-Relationship Schema Diagram of Core Database Tables}
+\label{fig:er_diagram}
+\end{figure}
+
+Key architectural tables include:
+\begin{itemize}
+    \item \texttt{applications}: Stores candidate applications with normalized company, role, stage, and the boolean \texttt{is\_stage\_locked} guard flag.
+    \item \texttt{application\_status\_events}: Append-only audit table tracking every stage transition, recording the prior stage, destination stage, triggering actor (\textit{user} vs. \textit{email\_webhook}), and transition rationale.
+    \item \texttt{company\_career\_pages} \& \texttt{job\_postings}: Relational catalog of monitored companies and their extracted positions with deduplication hashes.
+    \item \texttt{password\_resets}: Stores hashed, single-use, 15-minute verification codes for secure password recovery.
+\end{itemize}
+
+\section{Application Lifecycle State Machine and Stage Lock}
+Candidate applications traverse a formalized finite state machine (FSM). Figure \ref{fig:state_machine} diagrams the permissible transitions between stages.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=1.8cm,
+    state/.style={circle, draw=blue!80, fill=blue!10, thick, minimum size=1.8cm, align=center, font=\footnotesize},
+    final/.style={circle, draw=red!80, fill=red!10, thick, minimum size=1.8cm, align=center, font=\footnotesize},
+    success/.style={circle, draw=green!70!black, fill=green!10, thick, minimum size=1.8cm, align=center, font=\footnotesize},
+    trans/.style={draw, -latex', thick}
+]
+    \node [state] (saved) {Saved};
+    \node [state, right=of saved] (applied) {Applied};
+    \node [state, right=of applied] (screening) {Screening};
+    \node [state, right=of screening] (interview) {Interview};
+    \node [success, above right=0.8cm and 1.5cm of interview] (offer) {Offer};
+    \node [final, below right=0.8cm and 1.5cm of interview] (rejected) {Rejected};
+
+    \draw [trans] (saved) -- node[above, font=\tiny]{Submit} (applied);
+    \draw [trans] (applied) -- node[above, font=\tiny]{Recruiter Reachout} (screening);
+    \draw [trans] (screening) -- node[above, font=\tiny]{Technical / Onsite} (interview);
+    \draw [trans] (interview) -- node[above left, font=\tiny]{Accepted} (offer);
+    \draw [trans] (interview) -- node[below left, font=\tiny]{Rejection} (rejected);
+    \draw [trans] (applied) to[bend right=30] node[below, font=\tiny]{Direct Rejection} (rejected);
+    \draw [trans] (screening) to[bend right=20] node[below, font=\tiny]{Rejection} (rejected);
+    
+    % Rollback loop
+    \draw [trans, dashed] (rejected) to[bend left=45] node[above, font=\tiny]{Revert Transition} (interview);
+\end{tikzpicture}
+\caption{Application Lifecycle State Machine Diagram with Rollback Capability}
+\label{fig:state_machine}
+\end{figure}
+
+\subsection{The Stage Lock Mechanism}
+A critical vulnerability in automated career trackers is the ``destructive overwrite problem'': when a user manually schedules an upcoming final-round interview (advancing status to \texttt{interviewing}), an asynchronous rejection email arriving from a previous sub-application or older requisition might trigger an automated downgrade to \texttt{rejected}.
+
+To permanently resolve this, Track introduces the \textbf{Stage Lock} protocol:
+\begin{equation}
+    \Delta(\text{Stage}) = \begin{cases}
+        \text{Reject Event} & \text{if } \text{Actor} = \text{AutomatedAgent} \land \text{StageLocked} = \text{True} \\
+        \text{Apply Transition} & \text{otherwise}
+    \end{cases}
+\end{equation}
+When \texttt{is\_stage\_locked} is active, automated background workers are strictly barred from mutating application stages, instead queueing a notification for user confirmation.
+
+\section{Staged Blocking and 3-Tier Cascade Deduplication Pipeline}
+Comparing all $N$ incoming job listings across all job boards pairwise exhibits quadratic time complexity $O(N^2)$. When evaluating 50,000 job postings, this requires $1.25 \times 10^9$ pairwise comparisons—rendering neural vector inference mathematically unfeasible for interactive response times.
+
+To solve this, we engineer a **Staged Blocking + 3-Tier Cascade Deduplication Architecture** (Algorithm \ref{alg:dedup}).
+
+\subsection{Mathematical Formulation}
+
+\paragraph{Stage 0: Company Normalization and Blocking}
+Corporate legal entities are stripped of suffixes ($\text{"Inc."}$, $\text{"LLC"}$, $\text{"Corp."}$, $\text{"Ltd."}$, $\text{"Technologies"}$) and special punctuation via regular expressions:
+\begin{equation}
+    \text{Norm}(C) = \text{RegexReplace}(C, \text{"\textbackslash b(inc|llc|corp|ltd|technologies)\textbackslash b"}, \text{""})
+\end{equation}
+Pairwise comparisons are restricted to listings sharing identical normalized company keys $\text{Norm}(C)$, reducing total pairs from $O(N^2)$ to:
+\begin{equation}
+    \sum_{m=1}^{M} \frac{k_m(k_m - 1)}{2} \approx O(k^2) \quad \text{where } k_m \ll N
+\end{equation}
+
+\paragraph{Tier 1: Combined Jaccard Lexical Filter}
+For candidate job pair $(A, B)$ within a company block, compute the combined word token and character 3-gram Jaccard score:
+\begin{equation}
+    J_{\text{comb}}(A, B) = 0.6 \cdot J_{\text{token}}(A, B) + 0.4 \cdot J_{\text{char3}}(A, B)
+\end{equation}
+\textit{Early Exit}: If $J_{\text{comb}}(A, B) \ge 0.82$, mark as duplicate and bypass all subsequent tiers.
+
+\paragraph{Tier 2: Token Sort Levenshtein Edit Ratio}
+If $J_{\text{comb}} < 0.82$, evaluate character edit distance over alphabetically sorted tokens:
+\begin{equation}
+    R_{\text{sort}}(A, B) = \text{TokenSortRatio}(A, B)
+\end{equation}
+\textit{Early Exit}: If $R_{\text{sort}}(A, B) \ge 0.86$ or $\frac{J_{\text{comb}} + R_{\text{sort}}}{2} \ge 0.76$, mark as duplicate.
+
+\paragraph{Tier 3: Dense Vector Semantic Cosine Evaluation}
+If the lexical average falls into the ambiguous candidate zone ($0.35 \le \text{Lexical} < 0.76$), invoke \texttt{bge-small-en-v1.5} to produce 384-dimensional embeddings $\mathbf{u}, \mathbf{v}$ over $\text{Title} + \text{Snippet}$:
+\begin{equation}
+    S_{\text{semantic}}(A, B) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}
+\end{equation}
+If $S_{\text{semantic}}(A, B) \ge 0.85$, confirm pair as a semantic duplicate. If $\text{Lexical} < 0.35$, immediately discard pair without neural evaluation.
+
+\section{Security Architecture}
+Security controls are enforced across two primary vectors:
+
+\subsection{Server-Side Request Forgery (SSRF) Defense}
+Because Track allows administrators to configure arbitrary career portal URLs for synchronization, malicious users could theoretically submit internal AWS loopback addresses to access the cloud metadata service (\texttt{169.254.169.254}) or internal services. 
+
+To mitigate this, the HTTP fetch client resolves the target DNS hostname before issuing requests, validating the IP address against an unalterable blacklist blocking RFC1918 private networks, link-local subnets, and loopback ranges.
+
+\subsection{Fernet Authenticated OAuth Token Encryption}
+To store third-party Gmail OAuth2 refresh tokens securely at rest, tokens are encrypted using **Fernet** authenticated symmetric encryption. Fernet guarantees that data cannot be manipulated or read without the cryptographic key, combining:
+\begin{itemize}
+    \item **AES-128 in CBC Mode**: Encrypting plaintext tokens using PKCS7 padding.
+    \item **HMAC-SHA256**: Computing an authentication message digest over the initialization vector and ciphertext to detect any tampering at rest.
+\end{itemize}
+

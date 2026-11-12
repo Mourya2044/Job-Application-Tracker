@@ -1,0 +1,112 @@
+\chapter{Literature Review and Background Study}
+\label{ch:literature_review}
+
+\section{Review of Existing Career Tracking Platforms}
+Managing the modern employment lifecycle has fostered a generation of software tools designed to track job applications. Table \ref{tab:existing_platforms} summarizes the leading commercial platforms alongside their architectural paradigms, privacy constraints, and limitations.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Comparative Analysis of Existing Career Tracking Platforms}
+\label{tab:existing_platforms}
+\begin{tabularx}{\textwidth}{l p{2.5cm} p{2.8cm} p{2.8cm} X}
+\toprule
+\textbf{Platform} & \textbf{Ingestion Method} & \textbf{Status Tracking} & \textbf{AI Capabilities} & \textbf{Key Architectural Limitations} \\
+\midrule
+\textbf{Huntr} & Chrome extension \& manual input & Visual Kanban board & Basic resume match & Proprietary closed source; manual status updates; no direct ATS sync. \\
+\textbf{Teal} & Browser bookmarklet \& manual entry & Basic list and board & Cloud LLM resume tailoring & Strict paywalls on deep telemetry; candidate data shared with third-party LLMs. \\
+\textbf{Simplify} & Chrome extension auto-fill & Extension overlay & Rule-based auto-fill & Centered primarily on automated form filling; lacks email state machine audits. \\
+\textbf{Careerflow} & Browser extension & Kanban board & Cloud AI bullet generator & Dependent on client browser DOM scraping; fragile against ATS UI updates. \\
+\midrule
+\textbf{Track (Ours)} & Direct ATS JSON APIs \& Webhooks & Finite State Machine with Stage Lock & Local SLMs (\texttt{GLiNER}, \texttt{BGE-small}, \texttt{Qwen}) & Open, privacy-preserving, zero-data-loss audit trails, and multi-tier deduplication. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+While current commercial solutions assist applicants with preliminary organization, they universally exhibit critical shortcomings:
+\begin{itemize}
+    \item \textbf{Fragile DOM Scraping}: Most platforms depend on client-side browser extensions that scrape dynamic Document Object Model (DOM) elements across third-party websites. When an ATS provider modifies its CSS classes or HTML structure, client extensions immediately break.
+    \item \textbf{Absence of Immutable Audit Trails}: Existing tools permit unstructured, arbitrary transitions between application stages. Without formal state machine semantics or history logging, candidates cannot reconstruct timeline histories or review past interview scheduling alterations.
+    \item \textbf{Privacy Infringement}: Commercial trackers typically offload resume text and sensitive email correspondence to cloud-hosted APIs without client-side encryption, exposing candidate credentials and career histories to data retention risks.
+\end{itemize}
+
+\section{State of Job Board Ingestion and ATS APIs}
+To establish an unmetered, accurate job ingestion pipeline, it is essential to categorize the architectural typologies of job data sources. Public job data fundamentally divides into three distinct tiers:
+
+\subsection{Direct First-Party ATS Board APIs}
+Modern software-first enterprises host their public career sites on modern Applicant Tracking Systems such as Greenhouse, Lever, Ashby, and Workable. To support company branding and seamless web integration, these ATS platforms provide public, unauthenticated JSON endpoints:
+\begin{itemize}
+    \item \textbf{Greenhouse}: \texttt{https://boards-api.greenhouse.io/v1/boards/\{slug\}/jobs?content=true} provides complete HTML job descriptions, office locations, and departmental hierarchies.
+    \item \textbf{Lever}: \texttt{https://api.lever.co/v0/postings/\{slug\}?mode=json} provides structured metadata detailing workplace categories (\textit{remote}, \textit{hybrid}, \textit{onsite}) and commitment types.
+    \item \textbf{Ashby}: \texttt{https://api.ashbyhq.com/posting-api/job-board/\{slug\}} natively exposes structured compensation data (minimum and maximum salary bands, currency, and stock option flags).
+    \item \textbf{Workable}: \texttt{https://apply.workable.com/api/v1/widget/accounts/\{slug\}} returns clean JSON arrays with telecommuting status and application endpoints.
+\end{itemize}
+
+Consuming direct ATS APIs guarantees 100\% parsing accuracy, eliminates HTML structural breakage, and bypasses Cloudflare anti-bot challenges since these endpoints are explicitly designed for public content distribution.
+
+\subsection{Public Remote and Tech Aggregator Feeds}
+Aggregator feeds (e.g., RemoteOK, Remotive, Arbeitnow) provide broad cross-company discovery without requiring prior knowledge of individual company slugs. However, as noted in recent empirical surveys \cite{broder1997syntactic}, free aggregator feeds often introduce an intentional 24-hour syndication delay or throttle requests, mandating careful deduplication against direct ATS feeds.
+
+\subsection{Legacy Enterprise ATS Architectures}
+In contrast, Fortune 500 corporations frequently employ legacy systems such as Workday (\texttt{myworkdayjobs.com}), Oracle Taleo, SAP SuccessFactors, or iCIMS. These enterprise systems enforce complex session state tokens, dynamic payload obfuscation, and strict Web Application Firewall (WAF) rate limits. Integrating legacy platforms without expensive headless browser clusters or commercial proxy networks remains a significant engineering hurdle.
+
+\section{String Matching and Deduplication Algorithms}
+When ingesting listings across multiple direct and aggregator sources, identical positions are repeatedly encountered. Evaluating pairwise similarity across $N$ listings requires an analysis of string distance and vector proximity metrics.
+
+\subsection{Set-Based Lexical Similarity: Jaccard Index}
+The classic Jaccard similarity coefficient \cite{jaccard1912distribution} measures the ratio of intersection cardinality to union cardinality between two finite token sets $A$ and $B$:
+\begin{equation}
+    J(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{|A \cap B|}{|A| + |B| - |A \cap B|}
+\end{equation}
+
+In job title deduplication, pure word-level Jaccard matching exhibits high precision on word-reordered phrases but fails entirely on typographical errors, compound words, or hyphenation variations (e.g., ``Fullstack'' vs. ``Full-Stack'' yields zero word token intersection). To resolve this, character $n$-gram shingling \cite{broder1997syntactic} is introduced. For a string $S$, its 3-gram shingle set $C_3(S)$ captures overlapping tri-character substrings:
+\begin{equation}
+    C_3(\text{"backend"}) = \{\text{"bac"}, \text{"ack"}, \text{"cke"}, \text{"ken"}, \text{"end"}\}
+\end{equation}
+
+By computing a weighted linear combination of word token Jaccard ($J_{\text{word}}$) and character 3-gram Jaccard ($J_{\text{char}}$):
+\begin{equation}
+    J_{\text{combined}}(A, B) = \alpha \cdot J_{\text{word}}(A, B) + (1 - \alpha) \cdot J_{\text{char}}(A, B)
+\end{equation}
+with $\alpha = 0.6$, the system captures both vocabulary overlap and sub-word morphological resilience in linear $O(|S|)$ time.
+
+\subsection{Sequence-Based Edit Distance: Levenshtein and Token Sort Ratio}
+The Levenshtein distance \cite{levenshtein1966binary} between two strings $S_1$ and $S_2$ represents the minimum number of single-character edits (insertions, deletions, or substitutions) required to transform $S_1$ into $S_2$. Standard Levenshtein distance is formulated recursively as:
+\begin{equation}
+    \text{lev}(i, j) = \begin{cases}
+        \max(i, j) & \text{if } \min(i, j) = 0, \\
+        \min \begin{cases}
+            \text{lev}(i-1, j) + 1 \\
+            \text{lev}(i, j-1) + 1 \\
+            \text{lev}(i-1, j-1) + \mathbf{1}_{(S_1[i] \neq S_2[j])}
+        \end{cases} & \text{otherwise.}
+    \end{cases}
+\end{equation}
+
+Standard Levenshtein distance severely penalizes swapped words (e.g., ``Senior Backend Engineer'' vs. ``Backend Engineer, Senior''). To counteract token transpositions, the **Token Sort Ratio** algorithm (implemented via RapidFuzz \cite{rapidfuzz}) tokenizes both strings, strips punctuation, sorts tokens alphabetically, recombines them, and computes normalized edit similarity:
+\begin{equation}
+    \text{Ratio}(S_1, S_2) = 1 - \frac{\text{lev}(\text{sort}(S_1), \text{sort}(S_2))}{\max(|S_1|, |S_2|)}
+\end{equation}
+This yields a similarity score bounded in $[0, 1]$ invariant to word ordering.
+
+\subsection{Semantic Vector Embeddings and Bi-Encoders}
+Lexical metrics fail when titles use completely distinct vocabulary to refer to equivalent job descriptions (e.g., ``Frontend Architect (React)'' vs. ``Staff Web UI Engineer''). In such instances, bi-encoder sentence transformers \cite{reimers2019sentence} map textual strings to dense vector representations in $\mathbb{R}^d$:
+\begin{equation}
+    \mathbf{u} = \text{Encoder}(S_1), \quad \mathbf{v} = \text{Encoder}(S_2)
+\end{equation}
+The semantic proximity is evaluated via the cosine similarity:
+\begin{equation}
+    \text{Cosine}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}
+\end{equation}
+
+According to the Massive Text Embedding Benchmark (MTEB) \cite{muennighoff2022mteb}, the \texttt{BAAI/bge-small-en-v1.5} model \cite{xiao2023cpack} produces 384-dimensional dense vectors with state-of-the-art semantic retrieval performance while operating under a tiny 133MB memory footprint, rendering it ideal for low-latency CPU inference.
+
+\section{Information Extraction and Small Language Models}
+Historically, natural language extraction from semi-structured emails relied either on brittle regular expressions or multi-billion parameter cloud LLMs (such as GPT-4). Recent breakthroughs demonstrate that **Small Language Models (SLMs)** and task-specific bidirectional transformers achieve comparable or superior domain accuracy with dramatically lower latency and zero hosting expenses.
+
+\subsection{Zero-Shot Named Entity Recognition with GLiNER}
+GLiNER (Generalist and Lightweight Named Entity Recognition) \cite{zaratiana2024gliner} utilizes a bidirectional encoder to process arbitrary entity labels and input text simultaneously. By computing cross-attention representations between entity schema definitions (e.g., \textit{Company Name}, \textit{Role Title}, \textit{Interview Date}, \textit{Rejection Intent}) and raw recruiter email bodies, GLiNER performs zero-shot entity extraction without task-specific fine-tuning, requiring fewer than 300 million parameters.
+
+\subsection{Instruction-Tuned Small Language Models}
+For text transformation tasks such as resume bullet rewriting, instruction-tuned SLMs such as \texttt{Qwen2.5-0.5B-Instruct} \cite{qwen2.5} provide structured reasoning under 1GB of RAM. Deploying specialized SLMs on lightweight CPU runtimes completely decouples the application from expensive cloud vendor APIs, preserving candidate privacy and operational autonomy.
+

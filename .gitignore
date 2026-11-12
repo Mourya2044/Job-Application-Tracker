@@ -43,7 +43,20 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# IDE & OS
+# Executables & Binaries
+tectonic.exe
+*.exe
+
+# LaTeX Build Intermediates
+*.xdv
+*.aux
+*.bbl
+*.blg
+*.out
+*.toc
+*.lof
+*.lot
+
 .vscode/
 .idea/
 *.swp

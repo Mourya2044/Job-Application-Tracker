@@ -1,0 +1,133 @@
+\chapter{Appendices}
+
+\section*{Appendix A: Database Schema DDL Specifications}
+\addcontentsline{toc}{section}{Appendix A: Database Schema DDL Specifications}
+
+The following SQL Data Definition Language (DDL) listing represents the core database tables managed through Drizzle ORM within PostgreSQL:
+
+\begin{lstlisting}[language=SQL, caption={PostgreSQL Database Schema DDL}]
+-- Users and Authentication Table
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255),
+    google_id VARCHAR(255) UNIQUE,
+    full_name VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- Applications Table with Stage Lock Guard
+CREATE TABLE applications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    company_name VARCHAR(255) NOT NULL,
+    job_title VARCHAR(255) NOT NULL,
+    job_url TEXT,
+    salary_range VARCHAR(100),
+    current_stage VARCHAR(50) DEFAULT 'saved' NOT NULL,
+    is_stage_locked BOOLEAN DEFAULT FALSE NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- Immutable Application Status Event Log
+CREATE TABLE application_status_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    application_id UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    from_stage VARCHAR(50) NOT NULL,
+    to_stage VARCHAR(50) NOT NULL,
+    actor VARCHAR(50) NOT NULL, -- 'user', 'email_webhook', 'system'
+    rationale TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- Company Career Pages Catalog
+CREATE TABLE company_career_pages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_name VARCHAR(255) NOT NULL,
+    provider VARCHAR(50) NOT NULL, -- 'greenhouse', 'lever', 'ashby', 'workable'
+    slug VARCHAR(255) NOT NULL UNIQUE,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    last_synced_at TIMESTAMP WITH TIME ZONE,
+    total_jobs_found INTEGER DEFAULT 0 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- Transactional Outbox Background Queue
+CREATE TABLE background_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_type VARCHAR(100) NOT NULL,
+    payload JSONB NOT NULL,
+    status VARCHAR(50) DEFAULT 'queued' NOT NULL,
+    attempts INTEGER DEFAULT 0 NOT NULL,
+    scheduled_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+\end{lstlisting}
+
+\newpage
+\section*{Appendix B: REST API Route Specification}
+\addcontentsline{toc}{section}{Appendix B: REST API Route Specification}
+
+Table \ref{tab:api_routes} provides a summary of the core REST API endpoints exposed by the Fastify API Gateway.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Fastify Core REST API Endpoint Reference}
+\label{tab:api_routes}
+\begin{tabularx}{\textwidth}{l l p{4.2cm} X}
+\toprule
+\textbf{HTTP Method} & \textbf{Endpoint Path} & \textbf{Authentication} & \textbf{Description} \\
+\midrule
+\texttt{POST} & \texttt{/api/auth/register} & Public & Registers local user with Argon2id password hash. \\
+\texttt{POST} & \texttt{/api/auth/login} & Public & Authenticates user and issues HTTP-only JWT cookie. \\
+\texttt{GET} & \texttt{/api/auth/google} & Public & Initiates Google OAuth2 SSO consent flow. \\
+\texttt{POST} & \texttt{/api/auth/forgot-password} & Public & Generates 15-minute password reset verification code. \\
+\texttt{POST} & \texttt{/api/auth/reset-password} & Public & Resets password with valid verification code. \\
+\texttt{GET} & \texttt{/api/applications} & Bearer / Cookie & Lists all applications for authenticated user. \\
+\texttt{POST} & \texttt{/api/applications} & Bearer / Cookie & Creates a new job application. \\
+\texttt{PATCH} & \texttt{/api/applications/:id/stage} & Bearer / Cookie & Dispatches stage transition with audit logging. \\
+\texttt{POST} & \texttt{/api/applications/:id/lock} & Bearer / Cookie & Toggles Stage Lock guard on application. \\
+\texttt{GET} & \texttt{/api/jobs} & Public / Auth & Queries deduplicated job catalog with filters. \\
+\texttt{POST} & \texttt{/api/admin/career-pages} & Admin & Registers a new ATS company career board. \\
+\texttt{POST} & \texttt{/api/mailbox/webhook} & Secret Key & Ingests Google Pub/Sub push notification. \\
+\texttt{DELETE} & \texttt{/api/mailbox/disconnect} & Bearer / Cookie & Revokes Gmail OAuth synchronization credentials. \\
+\texttt{POST} & \texttt{/api/ai/resume/fit} & Bearer / Cookie & Computes ATS keyword fit and semantic score. \\
+\texttt{POST} & \texttt{/api/ai/resume/improve} & Bearer / Cookie & Rewrites resume achievement bullets using Google XYZ. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\newpage
+\section*{Appendix C: Test Suite Execution Output}
+\addcontentsline{toc}{section}{Appendix C: Test Suite Execution Output}
+
+The verbatim console output resulting from running the full automated Vitest test suite (\texttt{npm test}) is provided below:
+
+\begin{lstlisting}[language=bash, caption={Automated Integration Test Suite Execution Log}]
+> track-platform@2.0.0 test
+> npm run --workspaces --if-present test
+
+> @track/api@2.0.0 test
+> vitest run
+
+ RUN  v3.2.7 E:/Studies/4.1/Project/apps/api
+
+ [PASS] tests/job_discovery.test.ts (18 tests) 69ms
+ [PASS] tests/queue_processing.test.ts (7 tests) 31ms
+ [PASS] tests/gmail_integration.test.ts (11 tests) 2487ms
+ [PASS] tests/applications.test.ts (2 tests) 2475ms
+ [PASS] tests/lambda.test.ts (3 tests) 2478ms
+ [PASS] tests/authorization_and_lifecycle.test.ts (14 tests) 2528ms
+ [PASS] tests/auth_security.test.ts (8 tests) 2578ms
+ [PASS] tests/ai_integration.test.ts (8 tests) 2638ms
+
+ Test Files  9 passed (9)
+      Tests  75 passed (75)
+   Start at  16:02:30
+   Duration  7.84s (transform 4.25s, setup 0ms, collect 29.30s, tests 17.80s)
+\end{lstlisting}
+

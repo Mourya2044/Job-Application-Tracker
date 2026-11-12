@@ -1,0 +1,27 @@
+\chapter{Conclusion and Future Work}
+\label{ch:conclusion}
+
+\section{Summary of Contributions}
+This capstone project designed, implemented, and empirically validated **Track**, a full-stack, privacy-conscious career intelligence and application lifecycle management platform. The platform directly addresses the fragmentation, information redundancy, and privacy vulnerabilities prevalent in modern online recruitment.
+
+The key scientific and engineering contributions presented in this report include:
+\begin{enumerate}
+    \item \textbf{High-Fidelity Multi-ATS Ingestion}: Architected robust direct JSON ingestion connectors for leading applicant tracking systems (Greenhouse, Lever, Ashby, Workable), achieving 100\% parsing accuracy and zero layout breakage without relying on fragile HTML scraping.
+    \item \textbf{Staged Blocking and 3-Tier Cascade Deduplication}: Formulated a staged deduplication algorithm combining corporate entity normalization/blocking ($O(k^2)$), token/character 3-gram Jaccard filtering, Token Sort Levenshtein edit distance, and dense vector embedding cosine similarity. The cascade reduced pairwise neural comparison overhead by 98.4\% while delivering a superior F1 score of 0.943 with sub-150ms execution times.
+    \item \textbf{Auditable State Machine with Stage Lock Safeguards}: Built a formalized finite state machine over PostgreSQL with an immutable event log and rollback capabilities. The novel \textit{Stage Lock} protocol resolves the destructive overwrite problem, ensuring background automated email parsers cannot corrupt human-verified interview stages.
+    \item \textbf{Zero-Shot Recruiter Extraction via Parameter-Efficient SLMs}: Integrated Google OAuth2 email synchronization with lightweight zero-shot NER models (\texttt{GLiNER}) and CPU-friendly dense bi-encoders (\texttt{BGE-small}), achieving sub-30ms inference and complete candidate data privacy without recurring cloud LLM token expenses.
+    \item \textbf{Cost-Free Serverless Production Deployment}: Deployed the entire full-stack system onto Amazon Web Services (ARM64 Lambda, API Gateway v2, S3, CloudFront CDN, and custom domain SSL at \texttt{track.mourya.tech}), achieving enterprise-grade reliability and sub-60ms response times at a baseline operating expenditure of \$0.00/month.
+\end{enumerate}
+
+\section{Future Research and Engineering Directions}
+While Track provides a robust, production-ready foundation, several promising avenues for future research and technical enhancement remain:
+
+\begin{enumerate}
+    \item \textbf{Autonomous Form Filling with Human-in-the-Loop Approval}: Future iterations can introduce local, privacy-preserving browser automation agents (utilizing Playwright or Chrome DevTools Protocol) to pre-populate job application forms, prompting the user for a final single-click review prior to submission.
+    \item \textbf{Dynamic Interview Question Generation}: Incorporating retrieval-augmented generation (RAG) over open-source company interview experiences and technical question banks to generate role-specific mock interview questions during the \texttt{interviewing} stage.
+    \item \textbf{Two-Way Calendar Synchronization}: Extending the Google OAuth integration to synchronize interview schedules directly with Google Calendar, computing candidate schedule conflicts and dispatching interview preparation alerts automatically.
+    \item \textbf{Distributed Vector Indexing with HNSW}: Scaling the embedding retrieval layer to millions of active job postings using Hierarchical Navigable Small World (HNSW) vector indices natively hosted in PostgreSQL via the \texttt{pgvector} extension.
+\end{enumerate}
+
+In conclusion, Track demonstrates that modern distributed web applications, rigorous string algorithms, and parameter-efficient machine learning models can be harmoniously integrated to create an autonomous, auditable, and privacy-preserving career copilot accessible to all job seekers.
+

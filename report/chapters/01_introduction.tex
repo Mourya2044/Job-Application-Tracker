@@ -1,0 +1,65 @@
+\chapter{Introduction}
+\label{ch:introduction}
+
+\section{Problem Statement}
+In the modern software and knowledge-work job market, the recruitment workflow has experienced extreme distributed fragmentation. Contemporary employers manage their hiring pipelines across disparate, proprietary Applicant Tracking Systems (ATS) including Greenhouse, Lever, Ashby, Workable, and legacy enterprise software such as Workday and Taleo. Simultaneously, job seekers encounter job postings syndicated across dozens of public boards, tech aggregators, and social networks. This fragmentation creates several systemic challenges:
+
+\begin{enumerate}
+    \item \textbf{Syndication Redundancy and Information Overload}: Public tech job boards (e.g., RemoteOK, Remotive, Arbeitnow) continuously mirror and re-broadcast listings from primary company career portals. Job seekers frequently waste time reviewing and re-applying to identical roles published under slightly altered job titles, inverted wording, or outdated cross-postings.
+    \item \textbf{Lack of Lifecycle Auditability}: Traditional job tracking relies on static spreadsheets (Excel, Google Sheets) or generic Kanban boards (Trello, Notion). These tools lack domain-specific validation, leading to inconsistent state tracking, missing audit logs for interview scheduling dates, and an inability to systematically compute career metrics (e.g., stage conversion velocity, response rates, and time-to-first-response).
+    \item \textbf{Recruiter Email Desynchronization}: Recruiter communications regarding online assessments, screening calls, interviews, or rejections arrive asynchronously via email. Manually cross-referencing incoming emails with internal application records is error-prone, resulting in missed interviews or stale application statuses.
+    \item \textbf{Data Privacy and Security Risks in Cloud AI}: Emerging job tracking platforms often monetize user data or indiscriminately transmit sensitive candidate resumes, personal contact information, and recruiter correspondence to public third-party Large Language Model (LLM) APIs (such as OpenAI GPT-4). This introduces significant data compliance vulnerabilities, vendor lock-in, and unpredictable per-token operational costs.
+\end{enumerate}
+
+\section{Motivation}
+A modern software engineer or professional applicant often submits dozens or hundreds of applications during an active hiring cycle. Navigating this pipeline demands a platform that behaves not merely as a passive storage database, but as an \textbf{intelligent, autonomous career copilot}.
+
+Job seekers urgently require an integrated platform that can:
+\begin{itemize}
+    \item Continuously discover fresh, uncorrupted job postings directly from primary ATS APIs without relying on brittle HTML scrapers.
+    \item Automatically identify and eliminate duplicate postings in real time through computationally efficient multi-stage algorithmic filtering.
+    \item Securely monitor recruiter emails via authenticated OAuth2 webhooks to automatically detect application stage progressions.
+    \item Provide local, CPU-friendly Artificial Intelligence capabilities for ATS resume keyword matching and quantifiable achievement rewriting (e.g., the Google XYZ formula: \textit{Accomplished [X], as measured by [Y], by doing [Z]}), while guaranteeing absolute data privacy and predictable zero-cost hosting.
+\end{itemize}
+
+\section{Project Objectives}
+The primary objective of this project is to architect, develop, and empirically evaluate \textbf{Track}, a comprehensive, privacy-preserving Career Intelligence Platform. The specific technical objectives are:
+
+\begin{enumerate}
+    \item \textbf{Multi-Source Career Discovery Engine}: Develop high-fidelity connectors for major ATS platforms (Greenhouse, Lever, Ashby, Workable) and curated tech aggregator feeds, ingesting normalized job records with zero HTML scraping breakage.
+    \item \textbf{Staged Blocking and 3-Tier Cascade Deduplication}: Formulate and implement a low-latency deduplication pipeline that transforms computationally intractable $O(N^2)$ pairwise neural comparisons into an $O(k^2)$ localized operation ($k \ll N$) via corporate suffix normalization, token/shingle Jaccard indexing, Token Sort Levenshtein edit distance, and dense vector embedding cosine similarity.
+    \item \textbf{Strict Application Lifecycle State Machine}: Model candidate progress as a formal finite-state machine with an append-only event log, transition rollbacks, and a protective \textit{Stage Lock} mechanism to prevent background automated processes from overwriting human-verified interview stages.
+    \item \textbf{Zero-Shot Recruiter Email Intelligence}: Integrate Google OAuth2 webhooks and transactional outbox queues to ingest recruiter communications, performing zero-shot entity extraction and intent classification using parameter-efficient Small Language Models (SLMs) and fallback heuristics.
+    \item \textbf{Cost-Efficient Serverless Cloud Architecture}: Implement the complete full-stack system utilizing Fastify 5, Drizzle ORM, PostgreSQL, React 18, and Python FastAPI, packaging the production deployment into a high-performance, \$0/month AWS Free Tier serverless topology (Lambda ARM64, S3, CloudFront CDN, and custom domain SSL).
+\end{enumerate}
+
+\section{Scope and Limitations}
+\subsection{In-Scope Capabilities}
+\begin{itemize}
+    \item Direct JSON ingestion across multiple ATS board endpoints and open tech aggregator feeds.
+    \item Real-time, multi-tier deduplication filtering with configurable similarity thresholds.
+    \item Interactive Kanban board and tabular views for end-to-end application lifecycle tracking.
+    \item OAuth2 Gmail synchronization with automated email intent analysis and human-in-the-loop stage promotion.
+    \item Local ATS resume keyword gap analysis and bullet point re-formatting.
+    \item Multi-tenant authentication with secure password hashing (Argon2id/bcrypt) and HTTP-only session cookies.
+\end{itemize}
+
+\subsection{Out-of-Scope and System Limitations}
+\begin{itemize}
+    \item \textbf{Automated Application Submission}: The platform intentionally avoids automated headless form submission (bot-applying) to strictly comply with target ATS terms of service, anti-spam policies, and CAPTCHA constraints.
+    \item \textbf{Enterprise Legacy ATS HTML Scraping}: Portals hosted on legacy enterprise systems (e.g., Workday, Taleo) that require dynamic JavaScript execution, browser automation, or residential proxies are excluded from direct scraping to preserve lightweight, serverless execution.
+    \item \textbf{Outbound Email Dispatch}: The platform acts as an analytical consumer of inbound communications and does not automate outbound recruiter communications.
+\end{itemize}
+
+\section{Organization of the Report}
+The remainder of this report is structured as follows:
+\begin{itemize}
+    \item \textbf{Chapter \ref{ch:literature_review}} reviews existing commercial job tracking solutions, the structural mechanics of ATS API endpoints, mathematical string similarity algorithms, and parameter-efficient NLP models.
+    \item \textbf{Chapter \ref{ch:requirements_feasibility}} outlines the system requirements, non-functional performance constraints, and technological feasibility.
+    \item \textbf{Chapter \ref{ch:system_architecture}} details the end-to-end system architecture, relational database schemas, state machine semantics, and the 3-tier cascade deduplication algorithm.
+    \item \textbf{Chapter \ref{ch:implementation}} presents the engineering implementation across Fastify backend services, React web client, Python AI microservice, and AWS serverless infrastructure.
+    \item \textbf{Chapter \ref{ch:evaluation_results}} delivers empirical evaluation benchmarks, comparative deduplication performance analyses, system telemetry, and automated test suite results.
+    \item \textbf{Chapter \ref{ch:discussion_ui}} showcases prototype user interfaces, discusses architectural challenges overcome during development, and highlights security defenses.
+    \item \textbf{Chapter \ref{ch:conclusion}} summarizes the project contributions and outlines potential directions for future research and enhancements.
+\end{itemize}
+

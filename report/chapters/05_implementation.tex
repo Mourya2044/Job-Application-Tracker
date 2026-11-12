@@ -1,0 +1,147 @@
+\chapter{System Implementation Details}
+\label{ch:implementation}
+
+\section{Backend Services Architecture (Fastify 5 + TypeScript)}
+The core backend application is built using **Fastify 5** and TypeScript, encapsulated inside the \texttt{apps/api} directory. Fastify was selected for its minimal runtime overhead, integrated schema-based request validation (via TypeBox and Ajv), and native asynchronous lifecycle hooks.
+
+\subsection{Modular Directory Structure}
+The backend enforces a clean modular architecture where each functional domain encapsulates its routes, services, schemas, and tests:
+\begin{itemize}
+    \item \texttt{src/modules/auth/}: User registration, login, JWT issuance, Google OAuth2 SSO exchange, and password reset flows.
+    \item \texttt{src/modules/applications/}: Kanban CRUD operations, state transition dispatchers, stage lock controllers, and status event histories.
+    \item \texttt{src/modules/jobs/}: Company career portal ingestion, multi-ATS synchronization, and multi-tier deduplication execution.
+    \item \texttt{src/modules/mailbox/}: Gmail webhook receivers, OAuth credential encryption, message queueing, and recruiter review workflows.
+    \item \texttt{src/modules/ai/}: HTTP RPC proxy communicating with the Python AI microservice for embeddings, resume fit scoring, and bullet point generation.
+    \item \texttt{src/modules/queue/}: Transactional outbox queue runner and background task dispatchers.
+\end{itemize}
+
+\subsection{Empty Body Parsing and Fastify Middleware}
+To eliminate standard Fastify HTTP 400 parsing errors when client fetch requests issue POST/DELETE calls with \texttt{Content-Type: application/json} but empty bodies, a custom content-type parser is registered:
+
+\begin{lstlisting}[language=Java, caption={Custom Fastify Empty-Body JSON Parser}]
+// apps/api/src/server.ts
+fastify.addContentTypeParser(
+  'application/json',
+  { parseAs: 'string' },
+  (req, body, done) => {
+    if (!body || body.trim() === '') {
+      done(null, {});
+      return;
+    }
+    try {
+      const json = JSON.parse(body);
+      done(null, json);
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  }
+);
+\end{lstlisting}
+
+\section{Frontend Web Client Implementation (React 18 + Vite)}
+The web client, situated in \texttt{apps/web}, is an interactive Single-Page Application (SPA) constructed with **React 18**, **Vite**, and **Tailwind CSS**.
+
+\subsection{Kanban Board and Stage Synchronization}
+The core user dashboard presents an interactive Kanban board dividing applications into six operational stages (\texttt{saved}, \texttt{applied}, \texttt{screening}, \texttt{interviewing}, \texttt{offer}, \texttt{rejected}). Users can drag applications across columns or click stage promotion buttons. Every interaction dispatches an asynchronous \texttt{PATCH /api/applications/:id/stage} call that updates local UI state optimistically while handling network rollbacks gracefully upon error.
+
+\subsection{AI Copilot Drawer and Resume Fit Scorer}
+An integrated slide-over drawer provides continuous career intelligence:
+\begin{itemize}
+    \item \textbf{ATS Keyword Analyzer}: Computes dense cosine similarity and lexical keyword overlap between candidate resumes and job requirements.
+    \item \textbf{Google XYZ Bullet Point Generator}: A specialized rewriting assistant that prompts the user for rough job achievements and reformulates them into impactful resume bullets adhering to:
+    \begin{quote}
+        \textit{``Accomplished [X] as measured by [Y] by doing [Z]''}
+    \end{quote}
+\end{itemize}
+
+\subsection{Recruiter Review Panel with Diff Preview}
+When inbound emails are synchronized from Gmail, they populate a ``Mailbox Review'' panel. The client displays extracted entity metadata (Company Name, Detected Role, Extracted Intent) side-by-side with current database records, enabling users to accept or dismiss proposed stage changes with a single click.
+
+\section{AI Microservice Implementation (FastAPI + PyTorch)}
+The intelligence layer resides in \texttt{services/ai}, exposing an asynchronous REST interface via FastAPI.
+
+\subsection{Zero-Shot Named Entity Recognition (GLiNER)}
+To extract unstructured recruiter intent without manual pattern definitions, the service loads \texttt{urchade/gliner\_small-v2.1}. Incoming email bodies are tokenized and processed across dynamic entity labels:
+\begin{lstlisting}[language=Python, caption={Zero-Shot Entity Extraction with GLiNER}]
+# services/ai/app/extraction.py
+labels = ["company name", "job title", "interview date", "rejection", "offer"]
+entities = gliner_model.predict_entities(
+    email_text, 
+    labels, 
+    threshold=0.45
+)
+\end{lstlisting}
+Extracted spans are cross-referenced with user application records to identify candidate matches with high confidence.
+
+\subsection{Dense Embedding Provider (BGE-Small)}
+The service instantiates \texttt{BAAI/bge-small-en-v1.5} on the CPU. Input titles and description snippets are pre-pended with the standard query instruction prompt and encoded into normalized 384-dimensional vectors. Batch vector dot-products compute cosine similarities across blocked candidates in sub-10ms intervals.
+
+\subsection{Dual-Engine Fallback Resilience}
+To guarantee that the platform remains completely functional even in lightweight or offline environments lacking PyTorch neural runtimes, the AI microservice implements an automatic **Dual-Engine Fallback Architecture**:
+\begin{itemize}
+    \item \textbf{Primary Mode}: Neural execution utilizing PyTorch, Transformers, and GLiNER.
+    \item \textbf{Fallback Mode}: If model weights are unavailable or CPU memory is constrained, the service automatically switches to high-speed deterministic heuristics: regex-based company entity parsing, RapidFuzz lexical matching, and token-overlap keyword scoring, guaranteeing 100\% system availability.
+\end{itemize}
+
+\section{Asynchronous Background Queue and Outbox Pattern}
+Distributed email ingestion and long-running job portal synchronizations are decoupled from HTTP request cycles through a transactional **Outbox Pattern** implemented directly within PostgreSQL.
+
+\subsection{Concurrency Management with SKIP LOCKED}
+Background queue workers execute every 120 seconds. To prevent race conditions across parallel worker instances without introducing external dependencies such as Redis or RabbitMQ, task selection utilizes PostgreSQL row-level locking:
+
+\begin{lstlisting}[language=SQL, caption={PostgreSQL Transactional Outbox Worker Query}]
+SELECT id, task_type, payload, attempts
+FROM background_tasks
+WHERE status = 'queued' AND (scheduled_at <= NOW() OR scheduled_at IS NULL)
+ORDER BY scheduled_at ASC
+FOR UPDATE SKIP LOCKED
+LIMIT 10;
+\end{lstlisting}
+
+This guarantees that:
+\begin{enumerate}
+    \item Each task is exclusively processed by exactly one worker instance.
+    \item Concurrent workers immediately skip locked rows without blocking.
+    \item Tasks failing during execution are retried with exponential backoff up to a maximum threshold before transitioning to \texttt{failed}.
+\end{enumerate}
+
+\section{Cloud Deployment and Serverless Infrastructure}
+The production deployment of Track is hosted entirely on **Amazon Web Services (AWS)** in the Asia Pacific (Mumbai) region (\texttt{ap-south-1}), orchestrated through Serverless Framework v4.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    cloud/.style={rectangle, draw=black!60, fill=yellow!10, dashed, thick, rounded corners, minimum width=11cm, minimum height=6cm, align=center},
+    item/.style={rectangle, draw=blue!70, fill=blue!10, thick, rounded corners, minimum width=2.8cm, minimum height=1cm, align=center, font=\scriptsize},
+    cfnode/.style={rectangle, draw=orange!80, fill=orange!10, thick, rounded corners, minimum width=2.8cm, minimum height=1cm, align=center, font=\scriptsize},
+    arr/.style={draw, -latex', thick}
+]
+    % AWS Cloud Boundary
+    \node [cloud] (aws) at (4.5, 0) {};
+    \node [above right, font=\footnotesize\bfseries] at (aws.north west) {AWS Cloud Infrastructure (ap-south-1 / us-east-1)};
+
+    % Nodes
+    \node [cfnode] (cf) at (0.5, 0.5) {Amazon CloudFront\\CDN Distribution\\(track.mourya.tech)};
+    \node [item] (s3) at (4.5, 1.8) {Amazon S3 Bucket\\(track-platform-web)};
+    \node [item] (apigw) at (4.5, -0.8) {HTTP API Gateway v2\\(Regional Proxy)};
+    \node [item] (lambda) at (8.5, -0.8) {AWS Lambda\\(Node.js 20 ARM64)};
+    \node [item] (eventbridge) at (8.5, 1.8) {EventBridge Rule\\(cron(*/2 * * * ? *))};
+
+    % Connections
+    \draw [arr] (cf) -- node[above, font=\tiny]{Default (*)} (s3);
+    \draw [arr] (cf) -- node[below, font=\tiny]{/api/*} (apigw);
+    \draw [arr] (apigw) -- node[above, font=\tiny]{Invoke} (lambda);
+    \draw [arr] (eventbridge) -- node[right, font=\tiny]{Queue Trigger} (lambda);
+\end{tikzpicture}
+\caption{Production Serverless Cloud Topology on Amazon Web Services}
+\label{fig:serverless_infra}
+\end{figure}
+
+Key infrastructure configurations include:
+\begin{itemize}
+    \item \textbf{Single-Bundle ES Lambda}: Fastify backend code and dependencies are bundled via \texttt{esbuild} into a single 3.5MB file (\texttt{dist/lambda.mjs}) with custom \texttt{\_\_dirname} ESM shims.
+    \item \textbf{Cost-Optimized Architecture}: Running on ARM64 Graviton processors maximizes cost-performance ratios while remaining permanently within the AWS Free Tier.
+    \item \textbf{Edge Distribution \& SSL}: CloudFront caches static SPA assets globally while routing API calls dynamically to API Gateway. SSL certificates are provisioned via AWS Certificate Manager in \texttt{us-east-1} and verified via Cloudflare DNS.
+\end{itemize}
+

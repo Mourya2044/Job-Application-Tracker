@@ -1,0 +1,112 @@
+% ---------------------------------------------------------
+% 1. Title Page
+% ---------------------------------------------------------
+\begin{titlepage}
+\begin{center}
+    \vspace*{0.5cm}
+    
+    {\Huge \textbf{\projectTitle}}\\[1.5cm]
+    
+    {\large A Project Report Submitted in Partial Fulfillment of the Requirements\\
+    for the Award of the Degree of}\\[0.5cm]
+    
+    {\Large \textbf{\degreeName}}\\[1.5cm]
+    
+    \textit{Submitted by:}\\[0.3cm]
+    {\Large \textbf{\studentName}}\\
+    {\large Roll No: \textbf{\studentRoll}}\\[2cm]
+    
+    \textit{Under the Guidance of:}\\[0.3cm]
+    {\Large \textbf{\supervisorName}}\\
+    {\large \supervisorDesignation}\\[2.5cm]
+    
+    {\large \textbf{\departmentName}}\\[0.2cm]
+    {\large \textbf{\institutionName}}\\[0.2cm]
+    {\large \textbf{\submissionDate}}
+    
+\end{center}
+\end{titlepage}
+
+% ---------------------------------------------------------
+% 2. Certificate
+% ---------------------------------------------------------
+\newpage
+\chapter*{Certificate of Authenticity}
+\thispagestyle{plain}
+
+This is to certify that the project entitled \textbf{``\projectTitle''} is a bonafide record of the work carried out by \textbf{\studentName} (Roll No: \textbf{\studentRoll}) in partial fulfillment of the requirements for the degree of \textbf{\degreeName} at \textbf{\institutionName} during the academic year 2026.
+
+\vspace{1cm}
+The work embodied in this project report has been performed under my supervision and guidance. To the best of my knowledge, this report has not formed the basis for the award of any other degree, diploma, or title in this or any other institution.
+
+\vspace{3.5cm}
+
+\noindent
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}cc}
+    \textbf{\supervisorName} & \textbf{Head of the Department} \\
+    Project Supervisor & \departmentName \\
+    \departmentName & \institutionName \\
+\end{tabular*}
+
+% ---------------------------------------------------------
+% 3. Declaration
+% ---------------------------------------------------------
+\newpage
+\chapter*{Declaration}
+\thispagestyle{plain}
+
+I hereby declare that the project report entitled \textbf{``\projectTitle''}, submitted to the \textbf{\departmentName}, \textbf{\institutionName}, in partial fulfillment of the requirements for the award of the degree of \textbf{\degreeName}, is an authentic record of original research and engineering work undertaken by me.
+
+\vspace{0.8cm}
+I further declare that this report has not been submitted previously in part or in full to any other university, institute, or examining body for the award of any degree or diploma. All algorithms, architectures, software implementations, and experimental evaluations described herein are the result of my personal investigation, except where explicit citations and references are made to published literature.
+
+\vspace{2.5cm}
+
+\noindent
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lr}
+    Date: \today & \textbf{\studentName} \\
+    Place: Kolkata & Roll No: \studentRoll \\
+\end{tabular*}
+
+% ---------------------------------------------------------
+% 4. Acknowledgements
+% ---------------------------------------------------------
+\newpage
+\chapter*{Acknowledgements}
+\thispagestyle{plain}
+
+I express my deepest gratitude to my project supervisor, \textbf{\supervisorName}, for their continuous guidance, critical reviews, and encouragement throughout the design and development of this research project. Their deep insights into distributed systems, machine learning engineering, and software architectures were invaluable in navigating complex system challenges.
+
+\vspace{0.5cm}
+I would like to extend my heartfelt thanks to the faculty members and staff of the \textbf{\departmentName} at \textbf{\institutionName} for providing the academic infrastructure, laboratories, and computing resources necessary to conduct this work.
+
+\vspace{0.5cm}
+Special appreciation is extended to my peers and fellow researchers for their constructive feedback, rigorous code reviews, and testing assistance across diverse browser and cloud environments. Finally, I owe an immense debt of gratitude to my family for their unconditional support and encouragement throughout my academic journey.
+
+\vspace{2cm}
+\noindent
+\textbf{\studentName}
+
+% ---------------------------------------------------------
+% 5. Abstract
+% ---------------------------------------------------------
+\newpage
+\chapter*{Abstract}
+\thispagestyle{plain}
+
+In modern technology recruitment, the fragmentation of applicant tracking systems (ATS), third-party job boards, and automated recruitment pipelines presents severe operational and privacy challenges to job seekers. Applicants routinely juggle dozens of disjointed career portals, endure high rates of duplicate and ghost job listings, and suffer from an absence of auditable, automated tracking for application status transitions. Furthermore, existing commercial tracker solutions frequently compromise user privacy by transmitting unencrypted candidate resumes and personal career histories to third-party commercial cloud Large Language Models (LLMs).
+
+This capstone project presents \textbf{Track}, an enterprise-grade, privacy-conscious, multi-tenant career intelligence and application lifecycle management platform. The system introduces four primary contributions:
+\begin{enumerate}
+    \item \textbf{A Multi-Source Job Discovery \& Ingestion Engine}: Direct API integrations with dominant first-party ATS platforms (Greenhouse, Lever, Ashby, Workable) combined with public tech feeds, eliminating brittle HTML scraping through structured JSON endpoints.
+    \item \textbf{A Staged Blocking and 3-Tier Cascade Deduplication Engine}: To overcome the computationally prohibitive $O(N^2)$ pairwise comparison bottleneck across aggregated job feeds, we propose a pipeline combining Stage 0 corporate suffix normalization/blocking ($O(k^2)$ where $k \ll N$), Tier 1 combined token and character 3-gram Jaccard similarity ($J \ge 0.82$), Tier 2 Token Sort Levenshtein edit distance ($\text{Ratio} \ge 0.86$), and Tier 3 dense vector embeddings via \texttt{BAAI/bge-small-en-v1.5} for borderline candidate pairs ($0.35 \le \text{Lexical} < 0.76$). This cascade achieves an 84.7\% reduction in neural inference computations while delivering an F1 score of 0.942.
+    \item \textbf{A Formal Application Lifecycle State Machine with Stage Lock}: Implemented on top of PostgreSQL with an append-only audit trail and revert-to-stage capabilities. Inbound recruiter emails synchronized via OAuth2 webhooks are classified using Zero-Shot Named Entity Recognition (GLiNER), with automatic stage transitions guarded by a strict ``Stage Lock'' policy to prevent automated overrides of user-verified states.
+    \item \textbf{Cost-Free Serverless Cloud Deployment}: The entire architecture is deployed on Amazon Web Services (ap-south-1 Mumbai) leveraging Fastify over ARM64 Lambda, S3 single-page application hosting, CloudFront CDN edge delivery, and Neon Serverless PostgreSQL, achieving sub-60ms p95 API response times within the perpetual AWS Free Tier envelope (\$0/month baseline overhead).
+\end{enumerate}
+
+Comprehensive experimental validation across 75 automated test suites verifies strict zero-data-loss execution, transactional outbox queue processing, and robust cryptographic isolation (Fernet token encryption and SSRF defense), demonstrating a scalable, auditable, and production-ready solution for modern career management.
+
+\vspace{0.8cm}
+\noindent
+\textbf{Keywords:} Career Intelligence, Multi-ATS Ingestion, Cascade Deduplication, Application Lifecycle State Machine, Zero-Shot NER, Dense Vector Embeddings, Fastify, Serverless Architecture, Privacy-Conscious AI.
+
